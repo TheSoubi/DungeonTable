@@ -1,0 +1,269 @@
+.game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+.fullscreen-canvas {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  cursor: grab;
+}
+
+.start-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.toolbox {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  min-width: 300px;
+  max-width: 400px;
+  max-height: 80vh;
+  overflow-y: auto;
+  z-index: 1000;
+  backdrop-filter: blur(10px);
+}
+
+.toolbox.minimized {
+  min-width: auto;
+}
+
+.toolbox-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15px 20px;
+  background: #007bff;
+  color: white;
+  border-radius: 8px 8px 0 0;
+}
+
+.toolbox-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.minimize-btn {
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 0;
+}
+
+.minimize-btn:hover {
+  background: rgba(255,255,255,0.3);
+}
+
+.toolbox-content {
+  padding: 20px;
+}
+
+.section {
+  margin-bottom: 20px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  padding: 15px;
+}
+
+.sub-section {
+  margin-bottom: 20px;
+  /* background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #ddd; */
+  padding: 15px;
+}
+
+.section h3 {
+  margin: 0 0 10px 0;
+  font-size: 16px;
+  color: #333;
+}
+
+.section h4 {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+.layer-buttons {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.layer-buttons label {
+  padding: 10px;
+  border: 2px solid #ddd;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  text-align: center;
+  font-size: 14px;
+}
+
+input[type="radio"] {
+  opacity: 0;
+}
+
+.layer-buttons label.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.layer-buttons input[type="radio"] {
+  margin-right: 5px;
+}
+
+.grid-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.grid-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 14px;
+}
+
+.grid-controls input[type="range"] {
+  width: 100%;
+}
+
+.grid-controls input[type="checkbox"] {
+  margin-right: 8px;
+}
+
+.help-text {
+  margin: 10px 0 0 0;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
+}
+
+.info {
+  background: #e7f3ff;
+  padding: 15px;
+  border-radius: 6px;
+  border-left: 4px solid #007bff;
+}
+
+.info ul {
+  margin: 5px 0 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.info li {
+  margin: 5px 0;
+  color: #555;
+}
+
+button {
+  padding: 10px 20px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #0056b3;
+}
+
+input[type="file"] {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.map-name-input {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.load-dialog {
+  margin-top: 15px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+}
+
+.saved-maps-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.map-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px;
+  margin: 5px 0;
+  background: white;
+  border-radius: 4px;
+  border: 1px solid #e0e0e0;
+}
+
+.map-item span {
+  flex: 1;
+  font-size: 14px;
+  color: #333;
+}
+
+.map-item div {
+  display: flex;
+  gap: 5px;
+}
+
+.small-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+}
+
+.delete-btn {
+  background: #dc3545;
+}
+
+.delete-btn:hover {
+  background: #c82333;
+}
