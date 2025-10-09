@@ -1,0 +1,104 @@
+<div class="game-container">
+    <canvas 
+        v-if="game"
+        ref="canvas" 
+        @mousedown="handleMouseDown"
+        @mousemove="handleMouseMove"
+        @mouseup="handleMouseUp"
+        @mouseleave="handleMouseUp"
+        @wheel="handleWheel"
+        @keydown="handleKeyDown"
+        tabindex="0"
+        class="fullscreen-canvas"
+    ></canvas>
+
+    <div v-if="!isPlayerView" class="toolbox" :class="{ minimized: toolboxMinimized }">
+        <div class="toolbox-header">
+            <h2>Toolbox</h2>
+            <button @click="toolboxMinimized = !toolboxMinimized" class="minimize-btn">
+                {{ toolboxMinimized ? '+' : '-' }}
+            </button>
+        </div>
+        
+        <div v-if="!toolboxMinimized" class="toolbox-content">
+
+        <!-- TABLE SECTION -->
+        <div class="section">
+            <h3>Tables</h3>
+            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button @click="openLoadMapDialog" style="flex: 1;">Open Table</button>
+                <button @click="openSaveMapDialog" style="flex: 1;">Save Table</button>
+            </div>
+            <div v-if="isShowingOpenMapDialog" class="load-dialog">
+                <h4>Saved Maps:</h4>
+                <div v-if="savedMaps.length === 0" class="help-text">No saved maps found
+                </div>
+                <div v-else class="saved-maps-list">
+                    <div v-for="map in savedMaps" :key="map" class="map-item">
+                    <span>{{ map }}</span>
+                    <div>
+                        <button @click="loadMap(map)" class="small-btn">Load</button>
+                        <button @click="deleteMap(map)" class="small-btn delete-btn">Delete</button>
+                    </div>
+                    </div>
+                </div>
+            </div>
+            <div v-if="isShowingSaveMapDialog" class="load-dialog">
+            <h4>Enter a name:</h4>
+            <input v-model="mapName" type="text" placeholder="Map name" class="map-name-input" />
+            <button @click="saveMap(map)" class="button">Save</button>
+            </div>
+        </div>
+
+        <!-- LAYERS SECTION -->
+        <div class="section">
+            <h3>Layers</h3>
+            <div class="layer-buttons">
+            <label v-for="layer in editable_layers" :key="layer" :class="{ active: selectedLayer === layer }">
+                <button class="small-btn" @click="selectLayer(layer)">{{ layer }}</button>
+            </label>
+            </div>
+
+            <div v-if="selectedLayer === 'Grid'" class="sub-section">
+                <h3>Grid Controls</h3>
+                <p class="help-text">Edit the grid by moving the anchoir point or the grid lines.</p>
+                <div class="grid-controls">
+                    <label>
+                        Cell Size: {{ gridCellSize }}px
+                        <input type="range" v-model.number="gridCellSize" min="20" max="100" @input="renderCanvas" />
+                    </label>
+                    <label>
+                        Show Grid
+                        <input type="checkbox" v-model="showGrid" @change="renderCanvas" />
+                    </label>
+                </div>
+            </div>
+            <div v-else class="sub-section">
+                <h3>Add Image to {{ selectedLayer }} Layer</h3>
+                <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
+            </div>
+        </div>
+        
+        <div class="section">
+            <h3>Player View</h3>
+            <button @click="togglePlayerViewport" class="player-view-btn"> {{ hasOpenPlayerView ? 'Hide Player View' : 'Show/Edit Player View' }}
+            </button>
+            <button v-if="hasOpenPlayerView" @click="openPlayerView" class="player-view-btn" style="margin-top: 10px;">Open Player View Tab
+            </button>
+            <p class="help-text">{{ hasOpenPlayerView ? 'Blue rectangle shows player viewport' : 'Show viewport rectangle to define player view' }}</p>
+        </div>
+        
+        <div class="section info">
+            <h4>{{ 'Instructions:' }}</h4>
+            <ul>
+            <li><strong>Map/Token/GM layers:</strong> Upload images and drag them to move</li>
+            <li><strong>Grid layer:</strong> Edit grid by dragging grid lines</li>
+            <li><strong>Mouse wheel:</strong> Zoom in/out</li>
+            <li><strong>Click empty space:</strong> Pan the canvas</li>
+            <li>All layers are visible simultaneously</li>
+            <li>Only items on the selected layer can be moved</li>
+            </ul>
+        </div>
+        </div>
+    </div>
+</div>
