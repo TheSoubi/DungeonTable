@@ -13,6 +13,7 @@ export default {
       },
       selectedImageId: null,
       isDragging: false,
+      isMoving: false,
       draggedImage: null,
       dragOffset: { x: 0, y: 0 },
       isResizing: false,
@@ -343,135 +344,14 @@ export default {
         this.ctx.stroke();
       }
     },
-    
-    handleMouseDown(event) {
-      console.log("MouseDownEvent!")
-      const rect = this.canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const world = this.screenToWorld(screenX, screenY);
-      
-      // Check viewport rectangle first (in GM view only)
-      if (!this.isPlayerView && this.hasOpenPlayerView) {
-        const viewportHandle = this.getViewportHandleAt(world.x, world.y);
-        if (viewportHandle) {
-          this.isResizingViewport = true;
-          this.viewportResizeCorner = viewportHandle;
-          return;
-        }
-        
-        // Check if clicking inside viewport rectangle for dragging
-        if (world.x >= this.playerViewportX && 
-            world.x <= this.playerViewportX + this.playerViewportWidth &&
-            world.y >= this.playerViewportY && 
-            world.y <= this.playerViewportY + this.playerViewportHeight) {
-          this.isDraggingViewport = true;
-          this.viewportDragOffset = {
-            x: world.x - this.playerViewportX,
-            y: world.y - this.playerViewportY
-          };
-          return;
-        }
-      }
-      
-      if (this.selectedLayer === 'Grid') {
-        // Disable Grid editing in player view
-        if (this.isPlayerView) {
-          this.isPanning = true;
-          this.panStart = { x: screenX, y: screenY };
-          this.renderCanvas();
-          return;
-        }
-        
-        // Check anchor point
-        const anchorX = this.gridAnchorCol * this.gridCellSize + this.gridOffsetX;
-        const anchorY = this.gridAnchorRow * this.gridCellSize + this.gridOffsetY;
-        const anchorThreshold = 10 / this.zoomLevel;
-        
-        if (Math.abs(world.x - anchorX) < anchorThreshold && Math.abs(world.y - anchorY) < anchorThreshold) {
-          this.draggingGridAnchor = true;
-          return;
-        }
-        
-        // Check grid lines
-        const threshold = 5 / this.zoomLevel;
-        let lineIndex = 1;
-        
-        for (let x = this.gridOffsetX % this.gridCellSize + this.gridCellSize; lineIndex < 100; x += this.gridCellSize) {
-          if (Math.abs(world.x - x) < threshold) {
-            this.draggingGridLine = { type: 'vertical', index: lineIndex };
-            return;
-          }
-          lineIndex++;
-        }
-        
-        lineIndex = 1;
-        for (let y = this.gridOffsetY % this.gridCellSize + this.gridCellSize; lineIndex < 100; y += this.gridCellSize) {
-          if (Math.abs(world.y - y) < threshold) {
-            this.draggingGridLine = { type: 'horizontal', index: lineIndex };
-            return;
-          }
-          lineIndex++;
-        }
-        
-        // Start panning if no grid element clicked
-        this.isPanning = true;
-        this.panStart = { x: screenX, y: screenY };
-        this.renderCanvas();
-      } 
-      else {
-        const images = this.layerImages[this.selectedLayer];
-        console.log(`${images.length} images in the current layer`)
-        if (images) {
-          let is_one_object_selected = false;
-          for (let i = images.length - 1; i >= 0; i--) {
-            const img = images[i];
-            
-            // Check resize handles
-            const corner = this.getCornerAt(img, world.x, world.y);
-            if (corner) {
-              this.isResizing = true;
-              this.resizeCorner = corner;
-              this.draggedImage = img;
-              this.resizeStartSize = { width: img.width, height: img.height };
-              this.resizeStartPos = { x: img.x, y: img.y };
-              this.resizeAspectRatio = img.width / img.height;
-              is_one_object_selected = true;
-              break;
-            }
-            
-            // Check if clicking inside image
-            if (
-              world.x >= img.x &&
-              world.x <= img.x + img.width &&
-              world.y >= img.y &&
-              world.y <= img.y + img.height
-            ) {
-              this.isDragging = true;
-              this.draggedImage = img;
-              this.dragOffset = {
-                x: world.x - img.x,
-                y: world.y - img.y
-              };
-              is_one_object_selected = true;
-              this.selectedImageId = i;
-              console.log(`Selected Image ${this.selectedImageId}`)
-              break;
-            }
-            else {
-              this.selectedImageId = null;
-            }
-          }
-          // Start panning if no object clicked
-          if (!is_one_object_selected) {
-            this.isPanning = true;
-            this.panStart = { x: screenX, y: screenY };
-            this.renderCanvas();
-          }
-        } 
-      }
+
+    isClickInImage(click_position, img){
+      return click_position.x >= img.x &&
+             click_position.x <= img.x + img.width &&
+             click_position.y >= img.y &&
+             click_position.y <= img.y + img.height
     },
-    
+
     getCornerAt(img, worldX, worldY) {
       const handleSize = 8 / this.zoomLevel;
       const threshold = handleSize;
@@ -546,16 +426,140 @@ export default {
       return null;
     },
     
-    handleMouseMove(event) {
-      console.log("MouseMouveEvent!");
+    handleMouseDown(event) {
+      console.log("MouseDownEvent!")
       const rect = this.canvas.getBoundingClientRect();
-      const screenX = event.clientX - rect.left;
-      const screenY = event.clientY - rect.top;
-      const world = this.screenToWorld(screenX, screenY);
+      const click_X = event.clientX - rect.left;
+      const click_Y = event.clientY - rect.top;
+      const click_position = this.screenToWorld(click_X, click_Y);
+      this.isMoving = false;
+      
+      // Check viewport rectangle first (in GM view only)
+      if (!this.isPlayerView && this.hasOpenPlayerView) {
+        const viewportHandle = this.getViewportHandleAt(click_position.x, click_position.y);
+        if (viewportHandle) {
+          this.isResizingViewport = true;
+          this.viewportResizeCorner = viewportHandle;
+          return;
+        }
+        
+        // Check if clicking inside viewport rectangle for dragging
+        if (click_position.x >= this.playerViewportX && 
+            click_position.x <= this.playerViewportX + this.playerViewportWidth &&
+            click_position.y >= this.playerViewportY && 
+            click_position.y <= this.playerViewportY + this.playerViewportHeight) {
+          this.isDraggingViewport = true;
+          this.viewportDragOffset = {
+            x: click_position.x - this.playerViewportX,
+            y: click_position.y - this.playerViewportY
+          };
+          return;
+        }
+      }
+      
+      if (this.selectedLayer === 'Grid') {
+        // Disable Grid editing in player view
+        if (this.isPlayerView) {
+          this.isPanning = true;
+          this.panStart = { x: click_X, y: click_Y };
+          this.renderCanvas();
+          return;
+        }
+        
+        // Check anchor point
+        const anchorX = this.gridAnchorCol * this.gridCellSize + this.gridOffsetX;
+        const anchorY = this.gridAnchorRow * this.gridCellSize + this.gridOffsetY;
+        const anchorThreshold = 10 / this.zoomLevel;
+        
+        if (Math.abs(click_position.x - anchorX) < anchorThreshold && Math.abs(click_position.y - anchorY) < anchorThreshold) {
+          this.draggingGridAnchor = true;
+          return;
+        }
+        
+        // Check grid lines
+        const threshold = 5 / this.zoomLevel;
+        let lineIndex = 1;
+        
+        for (let x = this.gridOffsetX % this.gridCellSize + this.gridCellSize; lineIndex < 100; x += this.gridCellSize) {
+          if (Math.abs(click_position.x - x) < threshold) {
+            this.draggingGridLine = { type: 'vertical', index: lineIndex };
+            return;
+          }
+          lineIndex++;
+        }
+        
+        lineIndex = 1;
+        for (let y = this.gridOffsetY % this.gridCellSize + this.gridCellSize; lineIndex < 100; y += this.gridCellSize) {
+          if (Math.abs(click_position.y - y) < threshold) {
+            this.draggingGridLine = { type: 'horizontal', index: lineIndex };
+            return;
+          }
+          lineIndex++;
+        }
+        
+        // Start panning if no grid element clicked
+        this.isPanning = true;
+        this.panStart = { x: click_X, y: click_Y };
+        this.renderCanvas();
+      }
+      // Handle other layers 
+      else {
+        const images = this.layerImages[this.selectedLayer];
+        if (images) {
+          let is_one_object_selected = false;
+          for (let i = images.length - 1; i >= 0; i--) {
+            const img = images[i];
+            
+            // Check resize handles
+            const corner = this.getCornerAt(img, click_position.x, click_position.y);
+            if (corner) {
+              this.isResizing = true;
+              this.resizeCorner = corner;
+              this.draggedImage = img;
+              this.resizeStartSize = { width: img.width, height: img.height };
+              this.resizeStartPos = { x: img.x, y: img.y };
+              this.resizeAspectRatio = img.width / img.height;
+              is_one_object_selected = true;
+              break;
+            }
+            
+            // Check if clicking inside image
+            if (this.isClickInImage(click_position, img) && this.selectedImageId !== null) {
+              this.isDragging = true;
+              this.draggedImage = img;
+              this.dragOffset = {
+                x: click_position.x - img.x,
+                y: click_position.y - img.y
+              };
+              is_one_object_selected = true;
+              console.log(`Selected Image ${this.selectedImageId}`)
+              break;
+            }
+            else {
+              this.selectedImageId = null;
+            }
+          }
+          // Start panning if no object clicked
+          if (!is_one_object_selected) {
+            this.isPanning = true;
+            this.panStart = {x: click_X, y: click_Y};
+            this.renderCanvas();
+          }
+        } 
+      }
+    },
+    
+    handleMouseMove(event) {
+      // console.log("MouseMouveEvent!");
+      const rect = this.canvas.getBoundingClientRect();
+      const click_X = event.clientX - rect.left;
+      const click_Y = event.clientY - rect.top;
+      const click_position = this.screenToWorld(click_X, click_Y);
+      this.isMoving = true;
       
       if (this.isDraggingViewport) {
-        this.playerViewportX = world.x - this.viewportDragOffset.x;
-        this.playerViewportY = world.y - this.viewportDragOffset.y;
+        this.playerViewportX = click_position.x - this.viewportDragOffset.x;
+        this.playerViewportY = click_position.y - this.viewportDragOffset.y;
         this.renderCanvas();
       } else if (this.isResizingViewport) {
         const minSize = 100;
@@ -563,26 +567,26 @@ export default {
         
         // Corner resizing - maintain aspect ratio
         if (this.viewportResizeCorner === 'bottom-right') {
-          const newWidth = Math.max(minSize, world.x - this.playerViewportX);
+          const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
         } else if (this.viewportResizeCorner === 'top-left') {
           const oldRight = this.playerViewportX + this.playerViewportWidth;
           const oldBottom = this.playerViewportY + this.playerViewportHeight;
-          const newWidth = Math.max(minSize, oldRight - world.x);
+          const newWidth = Math.max(minSize, oldRight - click_position.x);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
           this.playerViewportX = oldRight - this.playerViewportWidth;
           this.playerViewportY = oldBottom - this.playerViewportHeight;
         } else if (this.viewportResizeCorner === 'top-right') {
           const oldBottom = this.playerViewportY + this.playerViewportHeight;
-          const newWidth = Math.max(minSize, world.x - this.playerViewportX);
+          const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
           this.playerViewportY = oldBottom - this.playerViewportHeight;
         } else if (this.viewportResizeCorner === 'bottom-left') {
           const oldRight = this.playerViewportX + this.playerViewportWidth;
-          const newWidth = Math.max(minSize, oldRight - world.x);
+          const newWidth = Math.max(minSize, oldRight - click_position.x);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
           this.playerViewportX = oldRight - this.playerViewportWidth;
@@ -590,21 +594,21 @@ export default {
         // Edge resizing - also maintain aspect ratio
         else if (this.viewportResizeCorner === 'top') {
           const oldBottom = this.playerViewportY + this.playerViewportHeight;
-          const newHeight = Math.max(minSize, oldBottom - world.y);
+          const newHeight = Math.max(minSize, oldBottom - click_position.y);
           this.playerViewportHeight = newHeight;
           this.playerViewportWidth = newHeight * viewportAspectRatio;
           this.playerViewportY = oldBottom - this.playerViewportHeight;
         } else if (this.viewportResizeCorner === 'right') {
-          const newWidth = Math.max(minSize, world.x - this.playerViewportX);
+          const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
         } else if (this.viewportResizeCorner === 'bottom') {
-          const newHeight = Math.max(minSize, world.y - this.playerViewportY);
+          const newHeight = Math.max(minSize, click_position.y - this.playerViewportY);
           this.playerViewportHeight = newHeight;
           this.playerViewportWidth = newHeight * viewportAspectRatio;
         } else if (this.viewportResizeCorner === 'left') {
           const oldRight = this.playerViewportX + this.playerViewportWidth;
-          const newWidth = Math.max(minSize, oldRight - world.x);
+          const newWidth = Math.max(minSize, oldRight - click_position.x);
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
           this.playerViewportX = oldRight - this.playerViewportWidth;
@@ -614,20 +618,20 @@ export default {
       } else if (this.isPanning) {
         // Disable panning in player view
         if (!this.isPlayerView) {
-          this.canvasOffsetX += screenX - this.panStart.x;
-          this.canvasOffsetY += screenY - this.panStart.y;
-          this.panStart = { x: screenX, y: screenY };
+          this.canvasOffsetX += click_X - this.panStart.x;
+          this.canvasOffsetY += click_Y - this.panStart.y;
+          this.panStart = { x: click_X, y: click_Y };
           this.renderCanvas();
           this.canvas.style.cursor = 'grabbing';
         }
       } else if (this.draggingGridAnchor) {
-        this.gridOffsetX = world.x - this.gridAnchorCol * this.gridCellSize;
-        this.gridOffsetY = world.y - this.gridAnchorRow * this.gridCellSize;
+        this.gridOffsetX = click_position.x - this.gridAnchorCol * this.gridCellSize;
+        this.gridOffsetY = click_position.y - this.gridAnchorRow * this.gridCellSize;
         this.renderCanvas();
       } else if (this.draggingGridLine) {
         const newCellSize = this.draggingGridLine.type === 'vertical' 
-          ? world.x / this.draggingGridLine.index
-          : world.y / this.draggingGridLine.index;
+          ? click_position.x / this.draggingGridLine.index
+          : click_position.y / this.draggingGridLine.index;
         
         if (newCellSize >= 20 && newCellSize <= 150) {
           const anchorX = this.gridAnchorCol * this.gridCellSize + this.gridOffsetX;
@@ -646,24 +650,24 @@ export default {
         
         // Corner resizing - preserve aspect ratio
         if (this.resizeCorner === 'bottom-right') {
-          const newWidth = Math.max(minSize, world.x - img.x);
+          const newWidth = Math.max(minSize, click_position.x - img.x);
           const newHeight = newWidth / this.resizeAspectRatio;
           img.width = newWidth;
           img.height = newHeight;
         } else if (this.resizeCorner === 'bottom-left') {
-          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - world.x);
+          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
           const newHeight = newWidth / this.resizeAspectRatio;
           img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
           img.width = newWidth;
           img.height = newHeight;
         } else if (this.resizeCorner === 'top-right') {
-          const newWidth = Math.max(minSize, world.x - img.x);
+          const newWidth = Math.max(minSize, click_position.x - img.x);
           const newHeight = newWidth / this.resizeAspectRatio;
           img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
           img.width = newWidth;
           img.height = newHeight;
         } else if (this.resizeCorner === 'top-left') {
-          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - world.x);
+          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
           const newHeight = newWidth / this.resizeAspectRatio;
           img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
           img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
@@ -672,25 +676,25 @@ export default {
         }
         // Edge resizing - do NOT preserve aspect ratio
         else if (this.resizeCorner === 'top') {
-          const newHeight = Math.max(minSize, this.resizeStartPos.y + this.resizeStartSize.height - world.y);
+          const newHeight = Math.max(minSize, this.resizeStartPos.y + this.resizeStartSize.height - click_position.y);
           img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
           img.height = newHeight;
         } else if (this.resizeCorner === 'right') {
-          const newWidth = Math.max(minSize, world.x - img.x);
+          const newWidth = Math.max(minSize, click_position.x - img.x);
           img.width = newWidth;
         } else if (this.resizeCorner === 'bottom') {
-          const newHeight = Math.max(minSize, world.y - img.y);
+          const newHeight = Math.max(minSize, click_position.y - img.y);
           img.height = newHeight;
         } else if (this.resizeCorner === 'left') {
-          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - world.x);
+          const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
           img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
           img.width = newWidth;
         }
         
         this.renderCanvas();
       } else if (this.isDragging && this.draggedImage) {
-        this.draggedImage.x = world.x - this.dragOffset.x;
-        this.draggedImage.y = world.y - this.dragOffset.y;
+        this.draggedImage.x = click_position.x - this.dragOffset.x;
+        this.draggedImage.y = click_position.y - this.dragOffset.y;
         this.renderCanvas();
       }
       
@@ -699,8 +703,11 @@ export default {
       }
     },
     
-    handleMouseUp() {
-      console.log("MouseUpEvent!")
+    handleMouseUp(event) {
+      console.log("MouseUpEvent!");
+      const rect = this.canvas.getBoundingClientRect();
+      const click_X = event.clientX - rect.left;
+      const click_Y = event.clientY - rect.top;
       let stateChanged = false;
       // Snap token layer images to grid (only when dragging, not resizing)
       if (this.isDragging && this.draggedImage) {
@@ -731,6 +738,28 @@ export default {
       if (stateChanged) {
         this.broadcastState();
       }
+      const click_position = this.screenToWorld(click_X, click_Y);
+      const selected_image = this.checkImageSelection(click_position);
+      if (selected_image !== null && !this.isMoving) {
+        this.selectedImageId = selected_image;
+        this.renderCanvas();
+      }
+    },
+
+    checkImageSelection(click_position){
+      // Check if an image is selected at the given click position and return the image id.
+      let image_id = null;
+      const images = this.layerImages[this.selectedLayer];
+      if (images) {
+        for (let i = images.length - 1; i >= 0; i--) {
+          const img = images[i];
+          if (this.isClickInImage(click_position, img)) {
+            image_id = i;
+            break
+          }
+        }
+      }
+      return image_id;
     },
 
     handleKeyDown(event) {
