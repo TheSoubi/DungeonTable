@@ -8,6 +8,7 @@
 - Mesure distances.
 - Draw zone.
 - Auto align grid to map.
+- Translations
 
 Flo's ideas
 - Add slider for player's viewport size.

@@ -1,3 +1,7 @@
+import JSZip from "jszip";
+import { saveAs } from 'file-saver';
+import path from "path-browserify";
+
 export default {
   data() {
     return {
@@ -52,7 +56,8 @@ export default {
       mapName: '',
       isShowingOpenMapDialog: false,
       isShowingSaveMapDialog: false,
-      savedMaps: []
+      savedMaps: [],
+      isLoading: false
     };
   },
   mounted() {
@@ -136,7 +141,6 @@ export default {
       reader.onload = (e) => {
         const img = new Image();
         img.onload = () => {
-          // Auto-resize if image is too large for canvas
           let width = img.width;
           let height = img.height;
           const maxWidth = this.canvasWidth * 0.8;
@@ -168,7 +172,6 @@ export default {
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
-      
       event.target.value = '';
     },
     
@@ -177,7 +180,7 @@ export default {
       
       this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
       
-      this.ctx.fillStyle = '#ffffff';
+      this.ctx.fillStyle = '#000000';
       this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
       
       // Apply zoom and pan transforms
@@ -923,16 +926,12 @@ export default {
       }
     },
     
-    saveMap() {
-      this.isShowingOpenMapDialog = false;
-      // if (!this.mapName.trim()) {
-      //   alert('Please enter a map name');
-      //   return;
-      // }
-      
-      // Prepare map data
+    async saveTable() {
+      this.isLoading = true;
+      const zip = new JSZip();
+
       const mapData = {
-        name: this.mapName,
+        name: "",
         savedAt: new Date().toISOString(),
         grid: {
           cellSize: this.gridCellSize,
@@ -956,99 +955,121 @@ export default {
         },
         layers: {}
       };
-      
-      // Save images with their data URLs
       for (const layer in this.layerImages) {
-        mapData.layers[layer] = this.layerImages[layer].map(img => ({
-          src: img.img.src,
-          x: img.x,
-          y: img.y,
-          width: img.width,
-          height: img.height,
-          layer: img.layer
-        }));
+        mapData.layers[layer] = [];
+        for (let img_index = 0; img_index < this.layerImages[layer].length; img_index++) {
+          const img = this.layerImages[layer][img_index];
+          const dst_img_path = `images/${layer}/img_${img_index}.png`;
+          mapData.layers[layer].push({src: dst_img_path,
+                                      x: img.x,
+                                      y: img.y,
+                                      width: img.width,
+                                      height: img.height
+                                      });
+          const dataURL = img.img.src;
+          const base64Data = dataURL.split(',')[1];
+          const imageData = atob(base64Data);
+          const byteArray = new Uint8Array(imageData.length);
+          for (let j = 0; j < imageData.length; j++) {
+            byteArray[j] = imageData.charCodeAt(j);
+          }
+          zip.file(dst_img_path, byteArray, { binary: true });
+        }
       }
-      
-      // Save to localStorage
-      localStorage.setItem(`homedungeon_map_${this.mapName}`, JSON.stringify(mapData));
-      
-      // Update saved maps list
-      const savedMaps = this.getSavedMaps();
-      if (!savedMaps.includes(this.mapName)) {
-        savedMaps.push(this.mapName);
-        localStorage.setItem('homedungeon_maps', JSON.stringify(savedMaps));
-      }
-      
-      alert(`Map "${this.mapName}" saved successfully!`);
-    },
-    
-    openLoadMapDialog() {
-      this.savedMaps = this.getSavedMaps();
-      this.isShowingOpenMapDialog = !this.isShowingOpenMapDialog;
-      this.isShowingSaveMapDialog = false;
+      zip.file('map_data.json', JSON.stringify(mapData));
+      const save_file = await zip.generateAsync({type:"blob"})
+      saveAs(save_file, "new_table.dtable");
+      this.isLoading = false;
+      console.log("End save");
     },
 
-    openSaveMapDialog() {
-      this.isShowingOpenMapDialog = false
-      this.isShowingSaveMapDialog = !this.isShowingSaveMapDialog;
+
+    async loadTableFile(ziparchive){
+      try {
+        const jsonFile = ziparchive.file('map_data.json');
+        if (!jsonFile) {
+          alert("Table file has an incorrect format.");
+          return;
+        }
+        const jsonData = await jsonFile.async('text');
+        const data = JSON.parse(jsonData);
+
+        // Load grid settings
+        this.gridCellSize = data.grid.cellSize;
+        this.showGrid = data.grid.showGrid;
+        this.gridOffsetX = data.grid.offsetX;
+        this.gridOffsetY = data.grid.offsetY;
+        this.gridAnchorCol = data.grid.anchorCol;
+        this.gridAnchorRow = data.grid.anchorRow;
+        
+        // Load view settings
+        this.zoomLevel = data.view.zoomLevel;
+        this.canvasOffsetX = data.view.canvasOffsetX;
+        this.canvasOffsetY = data.view.canvasOffsetY;
+        
+        // Load viewport settings
+        this.playerViewportX = data.viewport.x;
+        this.playerViewportY = data.viewport.y;
+        this.playerViewportWidth = data.viewport.width;
+        this.playerViewportHeight = data.viewport.height;
+        this.hasOpenPlayerView = data.viewport.hasOpenPlayerView;
+        this.layerImages = {};
+
+        // Load all images
+        for (const [layer, layerContent] of Object.entries(data.layers)) {
+          this.layerImages[layer] = [];
+          for (const image of layerContent) {
+            const imageFile = ziparchive.file(image.src);
+            if (!imageFile) {
+              console.warn(`The following file could not be loaded : ${image.src}`);
+              continue;
+            }
+            const imageData = await imageFile.async('uint8array');
+            const blob = new Blob([imageData], { type: 'image/png' });
+            const reader = new FileReader();
+            await new Promise((resolve) => {
+              reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                  const imageObject = {
+                    img: img,
+                    x: image.x,
+                    y: image.y,
+                    width: image.width,
+                    height: image.height,
+                    layer: layer,
+                  };
+                  this.layerImages[layer].push(imageObject);
+                  resolve();
+                };
+                img.src = e.target.result;
+              };
+              reader.readAsDataURL(blob);
+            });
+          }
+        }
+        this.renderCanvas();
+        this.broadcastState();
+      }
+      catch (error) {
+        console.error("An error occured while loading Table :", error);
+      }
     },
     
-    getSavedMaps() {
-      const maps = localStorage.getItem('homedungeon_maps');
-      return maps ? JSON.parse(maps) : [];
-    },
-    
-    loadMap(mapName) {
-      const mapData = localStorage.getItem(`homedungeon_map_${mapName}`);
-      if (!mapData) {
-        alert('Map not found');
-        return;
+    async loadTable(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      try {
+        const zip = new JSZip();
+        const zipContent = await zip.loadAsync(file);
+        await this.loadTableFile(zipContent);
+        event.target.value = '';
+      } catch (error) {
+        console.error(error);
+        alert('An error occured while loading file.');
+      } finally {
+        this.isLoading = false; // Masquer le loader
       }
-      
-      const data = JSON.parse(mapData);
-      
-      // Load grid settings
-      this.gridCellSize = data.grid.cellSize;
-      this.showGrid = data.grid.showGrid;
-      this.gridOffsetX = data.grid.offsetX;
-      this.gridOffsetY = data.grid.offsetY;
-      this.gridAnchorCol = data.grid.anchorCol;
-      this.gridAnchorRow = data.grid.anchorRow;
-      
-      // Load view settings
-      this.zoomLevel = data.view.zoomLevel;
-      this.canvasOffsetX = data.view.canvasOffsetX;
-      this.canvasOffsetY = data.view.canvasOffsetY;
-      
-      // Load viewport settings
-      this.playerViewportX = data.viewport.x;
-      this.playerViewportY = data.viewport.y;
-      this.playerViewportWidth = data.viewport.width;
-      this.playerViewportHeight = data.viewport.height;
-      this.hasOpenPlayerView = data.viewport.hasOpenPlayerView;
-      
-      // Load images
-      for (const layer in data.layers) {
-        this.layerImages[layer] = data.layers[layer].map(imgData => {
-          const img = new Image();
-          img.src = imgData.src;
-          return {
-            img: img,
-            x: imgData.x,
-            y: imgData.y,
-            width: imgData.width,
-            height: imgData.height,
-            layer: imgData.layer
-          };
-        });
-      }
-      
-      this.mapName = mapName;
-      this.isShowingOpenMapDialog = false;
-      this.renderCanvas();
-      this.broadcastState();
-      
-      alert(`Map "${mapName}" loaded successfully!`);
     },
     
     deleteMap(mapName) {

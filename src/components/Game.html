@@ -24,29 +24,10 @@
 
         <!-- TABLE SECTION -->
         <div class="section">
-            <h3>Tables</h3>
             <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button @click="openLoadMapDialog" style="flex: 1;">Open Table</button>
-                <button @click="openSaveMapDialog" style="flex: 1;">Save Table</button>
-            </div>
-            <div v-if="isShowingOpenMapDialog" class="load-dialog">
-                <h4>Saved Maps:</h4>
-                <div v-if="savedMaps.length === 0" class="help-text">No saved maps found
-                </div>
-                <div v-else class="saved-maps-list">
-                    <div v-for="map in savedMaps" :key="map" class="map-item">
-                    <span>{{ map }}</span>
-                    <div>
-                        <button @click="loadMap(map)" class="small-btn">Load</button>
-                        <button @click="deleteMap(map)" class="small-btn delete-btn">Delete</button>
-                    </div>
-                    </div>
-                </div>
-            </div>
-            <div v-if="isShowingSaveMapDialog" class="load-dialog">
-            <h4>Enter a name:</h4>
-            <input v-model="mapName" type="text" placeholder="Map name" class="map-name-input" />
-            <button @click="saveMap(map)" class="button">Save</button>
+                <button @click="$refs.zipInput.click()" style="flex: 1;">Open Table</button>
+                <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
+                <button @click="saveTable(map)" style="flex: 1;">Save Table</button>
             </div>
         </div>
 
@@ -100,5 +81,13 @@
             </ul>
         </div>
         </div>
+    </div>
+
+    <!-- Loader -->
+    <div v-if="isLoading" class="overlay">
+      <div class="loader">
+        <div class="spinner"></div>
+        <p>Generating file...</p>
+      </div>
     </div>
 </div>
