@@ -14,6 +14,11 @@
   width: 100vw;
   height: 100vh;
   cursor: grab;
+  background-color: transparent;
+}
+
+.fullscreen-canvas.player-canvas {
+  cursor: auto;
 }
 
 .start-overlay {
@@ -111,6 +116,31 @@
   color: #555;
 }
 
+.layer-button {
+  padding: 15px;
+  background: #ddd;
+  color: #000000;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.3s;
+}
+
+.layer-button:hover {
+  background: #bbb;
+}
+
+.layer-button.active {
+  background: #007bff;
+  color: white;
+  border-color: #007bff;
+}
+
+.layer-button.active:hover {
+  background: #0056b3;
+}
+
 .layer-buttons {
   display: flex;
   flex-direction: row;
@@ -119,30 +149,22 @@
 }
 
 .layer-buttons label {
-  padding: 10px;
   border: 2px solid #ddd;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.3s;
   text-align: center;
-  font-size: 14px;
 }
 
 input[type="radio"] {
   opacity: 0;
 }
 
-.layer-buttons label.active {
-  background: #007bff;
-  color: white;
-  border-color: #007bff;
-}
-
 .layer-buttons input[type="radio"] {
   margin-right: 5px;
 }
 
-.grid-controls {
+.tool-controls {
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -188,7 +210,7 @@ input[type="radio"] {
   color: #555;
 }
 
-button {
+.main-button {
   padding: 10px 20px;
   background: #007bff;
   color: white;
@@ -197,9 +219,36 @@ button {
   cursor: pointer;
   font-size: 16px;
   transition: background 0.3s;
+  flex: 1;
+  white-space: nowrap;
 }
 
-button:hover {
+.main-button.inactive {
+  background: #ddd;
+  color: #000000;
+  border-color: #007bff;
+}
+
+.main-button.inactive:hover {
+  background: #bbb;
+}
+
+.main-button:hover {
+  background: #0056b3;
+}
+
+.small-btn {
+  padding: 5px 10px;
+  font-size: 12px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.3s;
+}
+
+.small-btn:hover {
   background: #0056b3;
 }
 
@@ -253,11 +302,6 @@ input[type="file"] {
 .map-item div {
   display: flex;
   gap: 5px;
-}
-
-.small-btn {
-  padding: 5px 10px;
-  font-size: 12px;
 }
 
 .delete-btn {
