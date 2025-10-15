@@ -10,11 +10,12 @@
         @keydown="handleKeyDown"
         tabindex="0"
         class="fullscreen-canvas"
+        :class="{ 'player-canvas': isPlayerView }"
     ></canvas>
 
     <div v-if="!isPlayerView" class="toolbox" :class="{ minimized: toolboxMinimized }">
         <div class="toolbox-header">
-            <h2>Toolbox</h2>
+            <h2>Dungeon Table</h2>
             <button @click="toolboxMinimized = !toolboxMinimized" class="minimize-btn">
                 {{ toolboxMinimized ? '+' : '-' }}
             </button>
@@ -22,64 +23,61 @@
         
         <div v-if="!toolboxMinimized" class="toolbox-content">
 
-        <!-- TABLE SECTION -->
-        <div class="section">
-            <div style="display: flex; gap: 10px; margin-top: 10px;">
-                <button @click="$refs.zipInput.click()" style="flex: 1;">Open Table</button>
-                <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
-                <button @click="saveTable(map)" style="flex: 1;">Save Table</button>
-            </div>
-        </div>
-
-        <!-- LAYERS SECTION -->
-        <div class="section">
-            <h3>Layers</h3>
-            <div class="layer-buttons">
-            <label v-for="layer in editable_layers" :key="layer" :class="{ active: selectedLayer === layer }">
-                <button class="small-btn" @click="selectLayer(layer)">{{ layer }}</button>
-            </label>
-            </div>
-
-            <div v-if="selectedLayer === 'Grid'" class="sub-section">
-                <h3>Grid Controls</h3>
-                <p class="help-text">Edit the grid by moving the anchoir point or the grid lines.</p>
-                <div class="grid-controls">
-                    <label>
-                        Cell Size: {{ gridCellSize }}px
-                        <input type="range" v-model.number="gridCellSize" min="20" max="100" @input="renderCanvas" />
-                    </label>
-                    <label>
-                        Show Grid
-                        <input type="checkbox" v-model="showGrid" @change="renderCanvas" />
-                    </label>
+            <!-- TABLE SECTION -->
+            <div class="section">
+                <h3>Tools</h3>
+                <div style="display: flex; gap: 10px;">
+                    <button class="main-button" @click="$refs.zipInput.click()" >Open Table</button>
+                    <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
+                    <button class="main-button" @click="saveTable(map)" >Save Table</button>
+                    <button class="main-button" :class="{ inactive: !isMagnetEnabled }" @click="toggleMagnet()">Magnet</button>
                 </div>
             </div>
-            <div v-else class="sub-section">
-                <h3>Add Image to {{ selectedLayer }} Layer</h3>
-                <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
+
+            <!-- LAYERS SECTION -->
+            <div class="section">
+                <h3>Layers</h3>
+                <div class="layer-buttons">
+                    <div v-for="layer in editable_layers" :key="layer">
+                        <button class=layer-button :class="{ active: selectedLayer === layer }" @click="selectLayer(layer)">{{ layer }}</button>
+                    </div>
+                </div>
+
+                <div v-if="selectedLayer === 'Grid'" class="sub-section">
+                    <h3>Grid Controls</h3>
+                    <div class="tool-controls">
+                        <label>
+                            Show Grid
+                            <input type="checkbox" v-model="gridLayer.isGridEnabled" @change="renderCanvas" />
+                        </label>
+                    </div>
+                </div>
+                <div v-else-if="selectedLayer === 'Fog'" class="sub-section">
+                    <h3>Draw Fog</h3>
+                    <div class="tool-controls">
+                        <label>
+                            Enable Fog
+                            <input type="checkbox" v-model="fogLayer.isFogEnabled" @change="renderCanvas" />
+                        </label>
+                        <button class="small-btn" @click="eraseLastFogDrawing()">Erase last drawing</button>
+                        <button class="small-btn" @click="eraseAllFogDrawings()">Erase all drawings</button>
+                    </div>
+                    <p class="help-text">Draw a polygon to add fog.</p>
+                </div>
+                <div v-else class="sub-section">
+                    <h3>Add Image to {{ selectedLayer }} Layer</h3>
+                    <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
+                </div>
             </div>
-        </div>
-        
-        <div class="section">
-            <h3>Player View</h3>
-            <button @click="togglePlayerViewport" class="player-view-btn"> {{ hasOpenPlayerView ? 'Hide Player View' : 'Show/Edit Player View' }}
-            </button>
-            <button v-if="hasOpenPlayerView" @click="openPlayerView" class="player-view-btn" style="margin-top: 10px;">Open Player View Tab
-            </button>
-            <p class="help-text">{{ hasOpenPlayerView ? 'Blue rectangle shows player viewport' : 'Show viewport rectangle to define player view' }}</p>
-        </div>
-        
-        <div class="section info">
-            <h4>{{ 'Instructions:' }}</h4>
-            <ul>
-            <li><strong>Map/Token/GM layers:</strong> Upload images and drag them to move</li>
-            <li><strong>Grid layer:</strong> Edit grid by dragging grid lines</li>
-            <li><strong>Mouse wheel:</strong> Zoom in/out</li>
-            <li><strong>Click empty space:</strong> Pan the canvas</li>
-            <li>All layers are visible simultaneously</li>
-            <li>Only items on the selected layer can be moved</li>
-            </ul>
-        </div>
+            
+            <div class="section">
+                <h3>Player View</h3>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: row;">
+                    <button class="main-button" @click="openPlayerView">Open in new tab</button>
+                    <button class="main-button" :class="{ inactive: !isPlayerViewportEnabled }" @click="togglePlayerViewport()">Show/Hide player's view</button>
+                    <button class="main-button" @click="broadcastFullUpdate()">Force refresh</button>
+                </div>
+            </div>
         </div>
     </div>
 

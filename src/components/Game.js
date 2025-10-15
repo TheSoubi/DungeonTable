@@ -1,6 +1,8 @@
 import JSZip from "jszip";
 import { saveAs } from 'file-saver';
-import path from "path-browserify";
+import FogLayer from "./Fog";
+import GridLayer from "./Grid";
+import debounce from 'lodash.debounce';
 
 export default {
   data() {
@@ -8,13 +10,14 @@ export default {
       game: null,
       canvas: null,
       ctx: null,
-      editable_layers: ['Map', 'Grid', 'Token', 'GM'],
+      editable_layers: ['Map', 'Grid', 'Token', 'Fog', 'GM'],
       selectedLayer: 'Map',
       layerImages: {
         Map: [],
         Token: [],
         GM: []
       },
+      hasClicked: false,
       selectedImageId: null,
       isDragging: false,
       isMoving: false,
@@ -28,15 +31,6 @@ export default {
       canvasWidth: 0,
       canvasHeight: 0,
       toolboxMinimized: false,
-      gridCellSize: 50,
-      showGrid: true,
-      draggingGridLine: null,
-      gridLineIndex: 0,
-      gridOffsetX: 0,
-      gridOffsetY: 0,
-      gridAnchorCol: 5,
-      gridAnchorRow: 5,
-      draggingGridAnchor: false,
       zoomLevel: 1,
       canvasOffsetX: 0,
       canvasOffsetY: 0,
@@ -44,25 +38,28 @@ export default {
       panStart: { x: 0, y: 0 },
       isPlayerView: false,
       broadcastChannel: null,
-      playerViewportX: 0,
-      playerViewportY: 0,
-      playerViewportWidth: 800,
+      playerViewportX: 100,
+      playerViewportY: 100,
+      playerViewportWidth: 600,
       playerViewportHeight: 600,
       isDraggingViewport: false,
       isResizingViewport: false,
       viewportDragOffset: { x: 0, y: 0 },
       viewportResizeCorner: null,
-      hasOpenPlayerView: false,
+      isPlayerViewportEnabled: false,
       mapName: '',
       isShowingOpenMapDialog: false,
       isShowingSaveMapDialog: false,
       savedMaps: [],
-      isLoading: false
+      isLoading: false,
+      fogLayer: null,
+      gmFlagImg: null,
+      isMagnetEnabled: false
     };
   },
-  mounted() {
+  created() {
     this.createGame()
-    window.addEventListener('resize', this.handleResize);
+    window.addEventListener('resize', debounce(this.handleResize, 100));
     
     // Check if this is player view
     const urlParams = new URLSearchParams(window.location.search);
@@ -70,16 +67,20 @@ export default {
     
     // Set up BroadcastChannel for synchronization
     this.broadcastChannel = new BroadcastChannel('game-sync');
+    this.broadcastChannel.onmessage = (event) => {
+      this.handleBroadcastMessage(event.data);
+    };
     
-    if (this.isPlayerView) {
-      // Player view: listen for updates
-      this.broadcastChannel.onmessage = (event) => {
-        this.handleBroadcastMessage(event.data);
-      };
-    }
+    this.fogLayer = new FogLayer(this.isPlayerView);
+    this.fogLayer.setUpdateCallback(() => {this.broadcastFogUpdate()});
+
+    this.gridLayer = new GridLayer();
+
+    this.gmFlagImg = new Image();
+    this.gmFlagImg.src = 'assets/GM_layer_flag.svg';
   },
   beforeUnmount() {
-    window.removeEventListener('resize', this.handleResize);
+    window.removeEventListener('resize', debounce(this.handleResize, 200));
     if (this.broadcastChannel) {
       this.broadcastChannel.close();
     }
@@ -110,26 +111,27 @@ export default {
     
     handleResize() {
       if (!this.canvas) return;
-      
       this.canvasWidth = window.innerWidth;
       this.canvasHeight = window.innerHeight;
       this.canvas.width = this.canvasWidth;
       this.canvas.height = this.canvasHeight;
-      
       this.renderCanvas();
+      if (this.isPlayerView) {
+        this.broadcastPlayerViewResize();
+      }
     },
     
     screenToWorld(screenX, screenY) {
       return {
-        x: (screenX - this.canvasOffsetX) / this.zoomLevel,
-        y: (screenY - this.canvasOffsetY) / this.zoomLevel
+        x: Math.round((screenX - this.canvasOffsetX) / this.zoomLevel),
+        y: Math.round((screenY - this.canvasOffsetY) / this.zoomLevel)
       };
     },
     
     worldToScreen(worldX, worldY) {
       return {
-        x: worldX * this.zoomLevel + this.canvasOffsetX,
-        y: worldY * this.zoomLevel + this.canvasOffsetY
+        x: Math.round(worldX * this.zoomLevel + this.canvasOffsetX),
+        y: Math.round(worldY * this.zoomLevel + this.canvasOffsetY)
       };
     },
     
@@ -167,7 +169,7 @@ export default {
           this.layerImages[this.selectedLayer].push(imageObject);
           this.selectedImageId = this.layerImages[this.selectedLayer].length - 1
           this.renderCanvas();
-          this.broadcastState();
+          this.broadcastImageUpdate();
         };
         img.src = e.target.result;
       };
@@ -180,26 +182,21 @@ export default {
       
       this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
       
-      this.ctx.fillStyle = '#000000';
-      this.ctx.fillRect(0, 0, this.canvasWidth, this.canvasHeight);
-      
       // Apply zoom and pan transforms
       this.ctx.save();
       this.ctx.translate(this.canvasOffsetX, this.canvasOffsetY);
       this.ctx.scale(this.zoomLevel, this.zoomLevel);
       
       this.drawLayerImages('Map');
-      if (this.showGrid) {
-        this.drawGrid();
-      }
+      this.gridLayer.drawOnCanvas(this.canvas, this.canvasOffsetX, this.canvasOffsetY, this.canvasWidth, this.canvasHeight, this.zoomLevel);
       this.drawLayerImages('Token');
+      this.fogLayer.drawOnCanvas(this.canvas, this.canvasOffsetX, this.canvasOffsetY, this.canvasWidth, this.canvasHeight, this.zoomLevel);
       this.drawLayerImages('GM');
-      
+  
       // Draw player viewport rectangle in GM view
-      if (!this.isPlayerView && this.hasOpenPlayerView) {
+      if (!this.isPlayerView && this.isPlayerViewportEnabled) {
         this.drawPlayerViewport();
       }
-      
       this.ctx.restore();
     },
     
@@ -213,28 +210,27 @@ export default {
         this.playerViewportWidth,
         this.playerViewportHeight
       );
+      this.ctx.fillStyle = '#0066ff22';
+      this.ctx.fillRect(
+        this.playerViewportX,
+        this.playerViewportY,
+        this.playerViewportWidth,
+        this.playerViewportHeight
+      );
       
       // Draw resize handles at corners
       const handleSize = 10 / this.zoomLevel;
       this.ctx.fillStyle = '#0066ff';
-      
-      // Corner handles
       this.ctx.fillRect(this.playerViewportX - handleSize/2, this.playerViewportY - handleSize/2, handleSize, handleSize);
       this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth - handleSize/2, this.playerViewportY - handleSize/2, handleSize, handleSize);
       this.ctx.fillRect(this.playerViewportX - handleSize/2, this.playerViewportY + this.playerViewportHeight - handleSize/2, handleSize, handleSize);
       this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth - handleSize/2, this.playerViewportY + this.playerViewportHeight - handleSize/2, handleSize, handleSize);
       
-      // Edge handles
-      const edgeHandleSize = 8 / this.zoomLevel;
-      this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth/2 - edgeHandleSize/2, this.playerViewportY - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
-      this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth - edgeHandleSize/2, this.playerViewportY + this.playerViewportHeight/2 - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
-      this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth/2 - edgeHandleSize/2, this.playerViewportY + this.playerViewportHeight - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
-      this.ctx.fillRect(this.playerViewportX - edgeHandleSize/2, this.playerViewportY + this.playerViewportHeight/2 - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
-      
+
       // Label
       this.ctx.fillStyle = '#0066ff';
-      this.ctx.font = `${14 / this.zoomLevel}px Arial`;
-      this.ctx.fillText('Player View', this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY - 10 / this.zoomLevel);
+      this.ctx.font = `bold ${14 / this.zoomLevel}px Arial`;
+      this.ctx.fillText("Player's View", this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY - 10 / this.zoomLevel);
     },
     
     drawLayerImages(layer) {
@@ -254,14 +250,19 @@ export default {
           imageObj.width,
           imageObj.height
         );
+        if (layer === "GM") {
+          this.ctx.drawImage(this.gmFlagImg, imageObj.x - 10, imageObj.y - 10, 25, 25);
+        }
         if (layer === this.selectedLayer && !this.isPanning && image_index === this.selectedImageId) {
-          this.ctx.strokeStyle = '#ff0000';
+          this.ctx.strokeStyle = '#00a100';
           this.ctx.lineWidth = 2 / this.zoomLevel;
           this.ctx.strokeRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
+          this.ctx.fillStyle = '#00a10022';
+          this.ctx.fillRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
           
           // Draw resize handles at corners and edges
           const handleSize = 8 / this.zoomLevel;
-          this.ctx.fillStyle = '#ff0000';
+          this.ctx.fillStyle = '#00a100ff';
           
           // Corner handles
           this.ctx.fillRect(imageObj.x - handleSize/2, imageObj.y - handleSize/2, handleSize, handleSize);
@@ -278,73 +279,6 @@ export default {
           this.ctx.fillRect(imageObj.x + imageObj.width/2 - edgeHandleSize/2, imageObj.y + imageObj.height - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
           this.ctx.fillRect(imageObj.x - edgeHandleSize/2, imageObj.y + imageObj.height/2 - edgeHandleSize/2, edgeHandleSize, edgeHandleSize);
         }
-      }
-    },
-    
-    drawGrid() {
-      this.ctx.strokeStyle = '#000000';
-      this.ctx.lineWidth = 1 / this.zoomLevel;
-      
-      const worldBounds = {
-        minX: this.screenToWorld(0, 0).x,
-        minY: this.screenToWorld(0, 0).y,
-        maxX: this.screenToWorld(this.canvasWidth, this.canvasHeight).x,
-        maxY: this.screenToWorld(0, this.canvasHeight).y
-      };
-      
-      // Draw vertical lines
-      for (let x = Math.floor(worldBounds.minX / this.gridCellSize) * this.gridCellSize + this.gridOffsetX % this.gridCellSize; 
-           x <= worldBounds.maxX; 
-           x += this.gridCellSize) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(x, worldBounds.minY);
-        this.ctx.lineTo(x, worldBounds.maxY);
-        this.ctx.stroke();
-      }
-      
-      // Draw horizontal lines
-      for (let y = Math.floor(worldBounds.minY / this.gridCellSize) * this.gridCellSize + this.gridOffsetY % this.gridCellSize; 
-           y <= worldBounds.maxY; 
-           y += this.gridCellSize) {
-        this.ctx.beginPath();
-        this.ctx.moveTo(worldBounds.minX, y);
-        this.ctx.lineTo(worldBounds.maxX, y);
-        this.ctx.stroke();
-      }
-      
-      if (this.selectedLayer === 'Grid' && !this.isPanning) {
-        this.ctx.strokeStyle = 'rgba(255, 0, 0, 0.3)';
-        this.ctx.lineWidth = 3 / this.zoomLevel;
-        
-        for (let x = Math.floor(worldBounds.minX / this.gridCellSize) * this.gridCellSize + this.gridOffsetX % this.gridCellSize + this.gridCellSize; 
-             x < worldBounds.maxX; 
-             x += this.gridCellSize) {
-          this.ctx.beginPath();
-          this.ctx.moveTo(x, worldBounds.minY);
-          this.ctx.lineTo(x, worldBounds.maxY);
-          this.ctx.stroke();
-        }
-        
-        for (let y = Math.floor(worldBounds.minY / this.gridCellSize) * this.gridCellSize + this.gridOffsetY % this.gridCellSize + this.gridCellSize; 
-             y < worldBounds.maxY; 
-             y += this.gridCellSize) {
-          this.ctx.beginPath();
-          this.ctx.moveTo(worldBounds.minX, y);
-          this.ctx.lineTo(worldBounds.maxX, y);
-          this.ctx.stroke();
-        }
-        
-        // Draw anchor point
-        const anchorX = this.gridAnchorCol * this.gridCellSize + this.gridOffsetX;
-        const anchorY = this.gridAnchorRow * this.gridCellSize + this.gridOffsetY;
-        
-        this.ctx.fillStyle = '#00ff00';
-        this.ctx.beginPath();
-        this.ctx.arc(anchorX, anchorY, 6 / this.zoomLevel, 0, Math.PI * 2);
-        this.ctx.fill();
-        this.ctx.strokeStyle = '#008800';
-        this.ctx.lineWidth = 2 / this.zoomLevel;
-        this.ctx.stroke();
       }
     },
 
@@ -431,6 +365,10 @@ export default {
     
     handleMouseDown(event) {
       console.log("MouseDownEvent!")
+      if (this.isPlayerView) {
+        return;
+      }
+      this.hasClicked = true;
       const rect = this.canvas.getBoundingClientRect();
       const click_X = event.clientX - rect.left;
       const click_Y = event.clientY - rect.top;
@@ -438,7 +376,7 @@ export default {
       this.isMoving = false;
       
       // Check viewport rectangle first (in GM view only)
-      if (!this.isPlayerView && this.hasOpenPlayerView) {
+      if (this.isPlayerViewportEnabled) {
         const viewportHandle = this.getViewportHandleAt(click_position.x, click_position.y);
         if (viewportHandle) {
           this.isResizingViewport = true;
@@ -459,57 +397,16 @@ export default {
           return;
         }
       }
-      
+      // Handling Layer's manipulation
       if (this.selectedLayer === 'Grid') {
-        // Disable Grid editing in player view
-        if (this.isPlayerView) {
-          this.isPanning = true;
-          this.panStart = { x: click_X, y: click_Y };
-          this.renderCanvas();
-          return;
-        }
-        
-        // Check anchor point
-        const anchorX = this.gridAnchorCol * this.gridCellSize + this.gridOffsetX;
-        const anchorY = this.gridAnchorRow * this.gridCellSize + this.gridOffsetY;
-        const anchorThreshold = 10 / this.zoomLevel;
-        
-        if (Math.abs(click_position.x - anchorX) < anchorThreshold && Math.abs(click_position.y - anchorY) < anchorThreshold) {
-          this.draggingGridAnchor = true;
-          return;
-        }
-        
-        // Check grid lines
-        const threshold = 5 / this.zoomLevel;
-        let lineIndex = 1;
-        
-        for (let x = this.gridOffsetX % this.gridCellSize + this.gridCellSize; lineIndex < 100; x += this.gridCellSize) {
-          if (Math.abs(click_position.x - x) < threshold) {
-            this.draggingGridLine = { type: 'vertical', index: lineIndex };
-            return;
-          }
-          lineIndex++;
-        }
-        
-        lineIndex = 1;
-        for (let y = this.gridOffsetY % this.gridCellSize + this.gridCellSize; lineIndex < 100; y += this.gridCellSize) {
-          if (Math.abs(click_position.y - y) < threshold) {
-            this.draggingGridLine = { type: 'horizontal', index: lineIndex };
-            return;
-          }
-          lineIndex++;
-        }
-        
-        // Start panning if no grid element clicked
         this.isPanning = true;
         this.panStart = { x: click_X, y: click_Y };
         this.renderCanvas();
       }
-      // Handle other layers 
       else {
         const images = this.layerImages[this.selectedLayer];
+        let is_one_object_selected = false;
         if (images) {
-          let is_one_object_selected = false;
           for (let i = images.length - 1; i >= 0; i--) {
             const img = images[i];
             
@@ -543,17 +440,20 @@ export default {
             }
           }
           // Start panning if no object clicked
-          if (!is_one_object_selected) {
+        }
+        if (!is_one_object_selected) {
             this.isPanning = true;
             this.panStart = {x: click_X, y: click_Y};
             this.renderCanvas();
           }
-        } 
       }
     },
     
     handleMouseMove(event) {
       // console.log("MouseMouveEvent!");
+      if (this.isPlayerView) {
+        return;
+      }
       const rect = this.canvas.getBoundingClientRect();
       const click_X = event.clientX - rect.left;
       const click_Y = event.clientY - rect.top;
@@ -563,10 +463,9 @@ export default {
       if (this.isDraggingViewport) {
         this.playerViewportX = click_position.x - this.viewportDragOffset.x;
         this.playerViewportY = click_position.y - this.viewportDragOffset.y;
-        this.renderCanvas();
       } else if (this.isResizingViewport) {
         const minSize = 100;
-        const viewportAspectRatio = this.canvasWidth / this.canvasHeight;
+        const viewportAspectRatio = this.playerViewportWidth / this.playerViewportHeight;
         
         // Corner resizing - maintain aspect ratio
         if (this.viewportResizeCorner === 'bottom-right') {
@@ -615,16 +514,13 @@ export default {
           this.playerViewportWidth = newWidth;
           this.playerViewportHeight = newWidth / viewportAspectRatio;
           this.playerViewportX = oldRight - this.playerViewportWidth;
-        }
-        
-        this.renderCanvas();
+        }        
       } else if (this.isPanning) {
         // Disable panning in player view
         if (!this.isPlayerView) {
           this.canvasOffsetX += click_X - this.panStart.x;
           this.canvasOffsetY += click_Y - this.panStart.y;
           this.panStart = { x: click_X, y: click_Y };
-          this.renderCanvas();
           this.canvas.style.cursor = 'grabbing';
         }
       } else if (this.draggingGridAnchor) {
@@ -643,9 +539,7 @@ export default {
           this.gridCellSize = Math.round(newCellSize);
           
           this.gridOffsetX = anchorX - this.gridAnchorCol * this.gridCellSize;
-          this.gridOffsetY = anchorY - this.gridAnchorRow * this.gridCellSize;
-          
-          this.renderCanvas();
+          this.gridOffsetY = anchorY - this.gridAnchorRow * this.gridCellSize;          
         }
       } else if (this.isResizing && this.draggedImage) {
         const img = this.draggedImage;
@@ -693,59 +587,84 @@ export default {
           img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
           img.width = newWidth;
         }
-        
-        this.renderCanvas();
       } else if (this.isDragging && this.draggedImage) {
         this.draggedImage.x = click_position.x - this.dragOffset.x;
         this.draggedImage.y = click_position.y - this.dragOffset.y;
-        this.renderCanvas();
       }
-      
+      if (this.selectedLayer !== "Fog") {
+        this.fogLayer.cancelCurrentPolygon()
+      } else {
+        let final_click_position = click_position;
+        if (this.isMagnetEnabled) {
+          final_click_position = this.gridLayer.getClosestSnapCoordinates(click_position);
+        }
+        this.fogLayer.handleMouseMove(final_click_position.x, final_click_position.y);
+      }
+      this.renderCanvas();
       if (!this.isPanning && !this.isDragging && !this.isResizing && !this.draggingGridLine && !this.draggingGridAnchor) {
         this.canvas.style.cursor = 'grab';
       }
     },
     
     handleMouseUp(event) {
-      console.log("MouseUpEvent!");
-      const rect = this.canvas.getBoundingClientRect();
-      const click_X = event.clientX - rect.left;
-      const click_Y = event.clientY - rect.top;
-      let stateChanged = false;
-      // Snap token layer images to grid (only when dragging, not resizing)
-      if (this.isDragging && this.draggedImage) {
-        if (this.draggedImage.layer === 'Token') {
-          this.snapToGrid(this.draggedImage);
+      if (this.isPlayerView) {
+        return;
+      }
+      if (this.hasClicked) {
+        this.hasClicked = false;
+        console.log("MouseUpEvent!");
+        const rect = this.canvas.getBoundingClientRect();
+        const click_X = event.clientX - rect.left;
+        const click_Y = event.clientY - rect.top;
+        const click_position = this.screenToWorld(click_X, click_Y);
+        let stateChanged = false;
+
+        // Snap token layer images to grid
+        if (this.isDragging && this.draggedImage) {
+          if (this.selectedLayer === 'Token') {
+            const new_coordinates = this.gridLayer.getImageSnapCoordinates(this.draggedImage);
+            this.draggedImage.x = new_coordinates.x;
+            this.draggedImage.y = new_coordinates.y;
+          }
+          this.renderCanvas();
+          stateChanged = true;
         }
-        this.renderCanvas();
-        stateChanged = true;
-      }
-      
-      // Broadcast state if anything changed
-      if (this.isDragging || this.isResizing || this.draggingGridLine || this.draggingGridAnchor || this.isDraggingViewport || this.isResizingViewport) {
-        stateChanged = true;
-      }
-      
-      this.isDragging = false;
-      this.isResizing = false;
-      this.resizeCorner = null;
-      this.draggedImage = null;
-      this.draggingGridLine = null;
-      this.draggingGridAnchor = false;
-      this.isDraggingViewport = false;
-      this.isResizingViewport = false;
-      this.viewportResizeCorner = null;
-      this.isPanning = false;
-      this.canvas.style.cursor = 'grab';
-      
-      if (stateChanged) {
-        this.broadcastState();
-      }
-      const click_position = this.screenToWorld(click_X, click_Y);
-      const selected_image = this.checkImageSelection(click_position);
-      if (selected_image !== null && !this.isMoving) {
-        this.selectedImageId = selected_image;
-        this.renderCanvas();
+        
+        // Broadcast state if anything changed
+        if (this.isDragging || this.isResizing || this.draggingGridLine || this.draggingGridAnchor || this.isDraggingViewport || this.isResizingViewport) {
+          stateChanged = true;
+        }
+        
+        // Handle Fog
+        if (this.selectedLayer === "Fog" && !this.isMoving){
+          let final_click_position = click_position;
+          if (this.isMagnetEnabled) {
+            final_click_position = this.gridLayer.getClosestSnapCoordinates(click_position);
+          }
+          this.fogLayer.handleMouseUp(final_click_position.x, final_click_position.y);
+          this.renderCanvas();
+        }
+        
+        this.isDragging = false;
+        this.isResizing = false;
+        this.resizeCorner = null;
+        this.draggedImage = null;
+        this.draggingGridLine = null;
+        this.draggingGridAnchor = false;
+        this.isDraggingViewport = false;
+        this.isResizingViewport = false;
+        this.viewportResizeCorner = null;
+        this.isPanning = false;
+        this.canvas.style.cursor = 'grab';
+        
+        if (stateChanged) {
+          this.broadcastImageUpdate();
+        }
+        const selected_image = this.checkImageSelection(click_position);
+        if (selected_image !== null && !this.isMoving) {
+          this.selectedImageId = selected_image;
+          this.renderCanvas();
+        }
       }
     },
 
@@ -767,8 +686,19 @@ export default {
 
     handleKeyDown(event) {
       if (event.key === 'Delete' || event.keyCode === 46) {
-        console.log("Touche Suppr pressée !");
         this.handleDeleteKey();
+      }
+      else if (event.key === 'Escape'){
+        if (this.selectedLayer === "Fog"){
+          this.fogLayer.cancelCurrentPolygon();
+          this.renderCanvas();
+        }
+      }
+      else if (event.ctrlKey && event.key === 'z'){
+        if (this.selectedLayer === "Fog"){
+          this.fogLayer.eraseLastPoint();
+          this.renderCanvas();
+        }
       }
     },
 
@@ -779,22 +709,8 @@ export default {
         this.layerImages[this.selectedLayer].splice(this.selectedImageId, 1);
         this.draggedImage = null;
         this.renderCanvas();
-        this.broadcastState();
+        this.broadcastImageUpdate();
       }
-    },
-    
-    snapToGrid(imageObj) {
-      const imageCenterX = imageObj.x + imageObj.width / 2;
-      const imageCenterY = imageObj.y + imageObj.height / 2;
-      
-      const gridCol = Math.round(imageCenterX / this.gridCellSize);
-      const gridRow = Math.round(imageCenterY / this.gridCellSize);
-      
-      const gridCenterX = gridCol * this.gridCellSize;
-      const gridCenterY = gridRow * this.gridCellSize;
-      
-      imageObj.x = gridCenterX - imageObj.width / 2;
-      imageObj.y = gridCenterY - imageObj.height / 2;
     },
     
     handleWheel(event) {
@@ -826,20 +742,43 @@ export default {
     },
     
     togglePlayerViewport() {
-      this.hasOpenPlayerView = !this.hasOpenPlayerView;
+      this.isPlayerViewportEnabled = !this.isPlayerViewportEnabled;
       this.renderCanvas();
-      if (this.hasOpenPlayerView) {
-        this.broadcastState();
+      if (this.isPlayerViewportEnabled) {
+        this.broadcastFullUpdate();
       }
+    },
+
+    toggleMagnet(){
+      this.isMagnetEnabled = !this.isMagnetEnabled;
     },
     
     openPlayerView() {
       const url = window.location.origin + window.location.pathname + '?mode=player';
       window.open(url, '_blank');
-      this.broadcastState();
+      this.broadcastImageUpdate();
+    },
+
+    eraseLastFogDrawing(){
+      this.fogLayer.eraseLastDrawing();
+      this.renderCanvas();
+    },
+
+    eraseAllFogDrawings(){
+      this.fogLayer.eraseAllDrawings();
+      this.renderCanvas();
+    },
+
+    broadcastPlayerViewResize() {
+      this.broadcastChannel.postMessage({
+        type: 'player-view-resize',
+        state: {
+          canvasHeight: this.canvasHeight,
+          canvasWidth: this.canvasWidth
+        }})
     },
     
-    broadcastState() {
+    broadcastFullUpdate() {
       if (this.isPlayerView || !this.broadcastChannel) return;
       
       // Convert images to serializable format
@@ -856,11 +795,11 @@ export default {
       }
       
       this.broadcastChannel.postMessage({
-        type: 'state-update',
+        type: 'full-update',
         state: {
           layerImages: serializableImages,
           gridCellSize: this.gridCellSize,
-          showGrid: this.showGrid,
+          isGridEnabled: this.isGridEnabled,
           gridOffsetX: this.gridOffsetX,
           gridOffsetY: this.gridOffsetY,
           gridAnchorCol: this.gridAnchorCol,
@@ -869,13 +808,59 @@ export default {
           playerViewportY: this.playerViewportY,
           playerViewportWidth: this.playerViewportWidth,
           playerViewportHeight: this.playerViewportHeight,
-          hasOpenPlayerView: this.hasOpenPlayerView
+          isPlayerViewportEnabled: this.isPlayerViewportEnabled,
+          fogLayer: this.fogLayer.getJson()
         }
       });
     },
-    
+
+    broadcastImageUpdate() {
+      if (this.isPlayerView || !this.broadcastChannel) return;
+      
+      // Convert images to serializable format
+      const serializableImages = {};
+      for (const layer in this.layerImages) {
+        serializableImages[layer] = this.layerImages[layer].map(img => ({
+          src: img.img.src,
+          x: img.x,
+          y: img.y,
+          width: img.width,
+          height: img.height,
+          layer: img.layer
+        }));
+      }
+      
+      this.broadcastChannel.postMessage({
+        type: 'image-update',
+        state: {
+          layerImages: serializableImages,
+          gridCellSize: this.gridCellSize,
+          isGridEnabled: this.isGridEnabled,
+          gridOffsetX: this.gridOffsetX,
+          gridOffsetY: this.gridOffsetY,
+          gridAnchorCol: this.gridAnchorCol,
+          gridAnchorRow: this.gridAnchorRow,
+          playerViewportX: this.playerViewportX,
+          playerViewportY: this.playerViewportY,
+          playerViewportWidth: this.playerViewportWidth,
+          playerViewportHeight: this.playerViewportHeight,
+          isPlayerViewportEnabled: this.isPlayerViewportEnabled,
+        }
+      });
+    },
+
+    broadcastFogUpdate(){
+      console.log("Fog update");
+      this.broadcastChannel.postMessage({
+        type: 'fog-update',
+        state: {
+          fogLayer: this.fogLayer.getJson()
+        }
+      });
+    },
+  
     handleBroadcastMessage(data) {
-      if (data.type === 'state-update') {
+      if (data.type === 'image-update' || data.type === 'full-update') {
         const state = data.state;
         
         // Update images - reconstruct Image objects
@@ -893,37 +878,38 @@ export default {
             };
           });
         }
-        
+
         // Update grid settings
         this.gridCellSize = state.gridCellSize;
-        this.showGrid = state.showGrid;
+        this.isGridEnabled = state.isGridEnabled;
         this.gridOffsetX = state.gridOffsetX;
         this.gridOffsetY = state.gridOffsetY;
         this.gridAnchorCol = state.gridAnchorCol;
         this.gridAnchorRow = state.gridAnchorRow;
         
         // In player view, use viewport to calculate zoom/pan
-        if (this.isPlayerView && state.hasOpenPlayerView) {
-          // Calculate zoom to fit viewport into canvas
-          const viewportWidth = state.playerViewportWidth;
-          const viewportHeight = state.playerViewportHeight;
-          
-          const widthRatio = this.canvasWidth / viewportWidth;
-          const heightRatio = this.canvasHeight / viewportHeight;
-          
-          // Use the smaller ratio to ensure entire viewport fits
+        if (this.isPlayerView) {
+          const widthRatio = this.canvasWidth / state.playerViewportWidth;
+          const heightRatio = this.canvasHeight / state.playerViewportHeight;
           this.zoomLevel = Math.min(widthRatio, heightRatio);
           
-          // Center the viewport in the canvas
-          this.canvasOffsetX = (this.canvasWidth - viewportWidth * this.zoomLevel) / 2 - state.playerViewportX * this.zoomLevel;
-          this.canvasOffsetY = (this.canvasHeight - viewportHeight * this.zoomLevel) / 2 - state.playerViewportY * this.zoomLevel;
-        } else if (!this.isPlayerView) {
-          // GM view: use broadcast zoom/pan (though we don't broadcast it anymore)
-          // Keep current zoom/pan (GM controls their own view)
-        }
-        
-        this.renderCanvas();
+          this.canvasOffsetX = - state.playerViewportX * this.zoomLevel;
+          this.canvasOffsetY = - state.playerViewportY * this.zoomLevel;
+        }    
       }
+      if (data.type === 'fog-update' || data.type === 'full-update') {
+        this.fogLayer.loadJson(data.state.fogLayer);
+      }
+      if (data.type === 'player-view-resize') {
+        console.log("updating player viewport size", data.state.canvasWidth, data.state.canvasHeight);
+        const widthRatio = data.state.canvasWidth / this.playerViewportWidth;
+        const heightRatio = data.state.canvasHeight / this.playerViewportHeight
+        const scaleFactor = Math.min(widthRatio, heightRatio);
+        // this.playerViewportHeight = data.state.canvasHeight / whratio / this.zoomLevel;
+        this.playerViewportWidth = data.state.canvasWidth / this.zoomLevel;
+        this.playerViewportHeight = data.state.canvasHeight / this.zoomLevel;
+      }
+      this.renderCanvas();
     },
     
     async saveTable() {
@@ -932,10 +918,11 @@ export default {
 
       const mapData = {
         name: "",
+        version: "1",
         savedAt: new Date().toISOString(),
         grid: {
           cellSize: this.gridCellSize,
-          showGrid: this.showGrid,
+          isGridEnabled: this.isGridEnabled,
           offsetX: this.gridOffsetX,
           offsetY: this.gridOffsetY,
           anchorCol: this.gridAnchorCol,
@@ -951,16 +938,17 @@ export default {
           y: this.playerViewportY,
           width: this.playerViewportWidth,
           height: this.playerViewportHeight,
-          hasOpenPlayerView: this.hasOpenPlayerView
+          isPlayerViewportEnabled: this.isPlayerViewportEnabled
         },
-        layers: {}
+        image_layers: {},
+        fog_layer: this.fogLayer.getJson()
       };
       for (const layer in this.layerImages) {
-        mapData.layers[layer] = [];
+        mapData.image_layers[layer] = [];
         for (let img_index = 0; img_index < this.layerImages[layer].length; img_index++) {
           const img = this.layerImages[layer][img_index];
           const dst_img_path = `images/${layer}/img_${img_index}.png`;
-          mapData.layers[layer].push({src: dst_img_path,
+          mapData.image_layers[layer].push({src: dst_img_path,
                                       x: img.x,
                                       y: img.y,
                                       width: img.width,
@@ -996,7 +984,7 @@ export default {
 
         // Load grid settings
         this.gridCellSize = data.grid.cellSize;
-        this.showGrid = data.grid.showGrid;
+        this.isGridEnabled = data.grid.isGridEnabled;
         this.gridOffsetX = data.grid.offsetX;
         this.gridOffsetY = data.grid.offsetY;
         this.gridAnchorCol = data.grid.anchorCol;
@@ -1012,11 +1000,14 @@ export default {
         this.playerViewportY = data.viewport.y;
         this.playerViewportWidth = data.viewport.width;
         this.playerViewportHeight = data.viewport.height;
-        this.hasOpenPlayerView = data.viewport.hasOpenPlayerView;
+        this.isPlayerViewportEnabled = data.viewport.isPlayerViewportEnabled;
         this.layerImages = {};
 
+        // Load fog layer
+        this.fogLayer.loadJson(data.fog_layer)
+
         // Load all images
-        for (const [layer, layerContent] of Object.entries(data.layers)) {
+        for (const [layer, layerContent] of Object.entries(data.image_layers)) {
           this.layerImages[layer] = [];
           for (const image of layerContent) {
             const imageFile = ziparchive.file(image.src);
@@ -1049,7 +1040,7 @@ export default {
           }
         }
         this.renderCanvas();
-        this.broadcastState();
+        this.broadcastFullUpdate();
       }
       catch (error) {
         console.error("An error occured while loading Table :", error);
@@ -1085,5 +1076,6 @@ export default {
       this.savedMaps = savedMaps;
       alert(`Map "${mapName}" deleted`);
     }
+
   }
 };
