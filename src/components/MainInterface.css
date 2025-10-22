@@ -242,6 +242,12 @@ input[type="radio"] {
   background: #0056b3;
 }
 
+.small-btn.inactive {
+  background: #ddd;
+  color: #000000;
+  border-color: #007bff;
+}
+
 input[type="file"] {
   width: 100%;
   padding: 8px;

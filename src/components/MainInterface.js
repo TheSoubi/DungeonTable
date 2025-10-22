@@ -158,7 +158,7 @@ export default {
                         height = height * ratio;
                     }
 
-                    const imageObject = {
+                    let imageObject = {
                         img: img,
                         x: 100,
                         y: 100,
@@ -168,7 +168,7 @@ export default {
                     };
 
                     this.layerImages[this.selectedLayer].push(imageObject);
-                    this.selectedImageId = this.layerImages[this.selectedLayer].length - 1
+                    this.selectedImageId = this.layerImages[this.selectedLayer].length - 1;
                     this.renderCanvas();
                     this.broadcastImageUpdate();
                 };
@@ -238,12 +238,11 @@ export default {
             // Hide GM layer in player view
             if (this.isPlayerView && layer === 'GM') return;
 
-            const images = this.layerImages[layer];
-            if (!images) return;
+            if (!this.layerImages[layer]) return;
 
             // const imageObj of images
-            for (let image_index = 0; image_index < images.length; image_index++) {
-                let imageObj = images[image_index]
+            for (let image_index = 0; image_index < this.layerImages[layer].length; image_index++) {
+                let imageObj = this.layerImages[layer][image_index]
                 this.ctx.drawImage(
                     imageObj.img,
                     imageObj.x,
@@ -402,8 +401,7 @@ export default {
                 this.isPanning = true;
                 this.panStart = {x: click_X, y: click_Y};
                 this.renderCanvas();
-            }
-            else {
+            } else {
                 const images = this.layerImages[this.selectedLayer];
                 let is_one_object_selected = false;
                 if (images) {
@@ -447,6 +445,47 @@ export default {
             }
         },
 
+        async sendImageToServer(base64Image) {
+            const response = await fetch('http://localhost:5000/api/detect_grid_size', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({image: base64Image}),
+            });
+
+            if (!response.ok) {
+                throw new Error('Error while sending image.');
+            }
+
+            return await response.json();
+        },
+
+        async processSelectedImage() {
+            if (this.layerImages[this.selectedLayer][this.selectedImageId]) {
+                let image = this.layerImages[this.selectedLayer][this.selectedImageId];
+                let base64_img = image.img.src;
+                this.isLoading = true;
+                await this.sendImageToServer(base64_img)
+                    .then(processedImage => {
+                        const img = new Image();
+                        const current_grid_size = this.gridLayer.get_grid_cell_size();
+                        const x_ratio = current_grid_size / processedImage.x_grid_size;
+                        const y_ratio = current_grid_size / processedImage.y_grid_size;
+                        console.log("Current grid size", current_grid_size, "server answer", processedImage);
+                        this.layerImages[this.selectedLayer][this.selectedImageId].width = x_ratio * processedImage.width;
+                        this.layerImages[this.selectedLayer][this.selectedImageId].height = y_ratio * processedImage.height;
+                        this.renderCanvas();
+                        this.isLoading = false;
+                    })
+                    .catch(error => {
+                        console.error('Error: ', error);
+                        this.isLoading = false;
+                    });
+                this.isLoading = false;
+            }
+        },
+
         handleMouseMove(event) {
             if (this.isPlayerView) {
                 return;
@@ -462,8 +501,7 @@ export default {
                 this.canvas.style.cursor = 'grabbing';
                 this.playerViewportX = click_position.x - this.viewportDragOffset.x;
                 this.playerViewportY = click_position.y - this.viewportDragOffset.y;
-            }
-            else if (this.isResizingViewport) {
+            } else if (this.isResizingViewport) {
                 const minSize = 100;
                 const viewportAspectRatio = this.playerViewportWidth / this.playerViewportHeight;
                 this.canvas.style.cursor = 'nwse-resize';
@@ -515,15 +553,13 @@ export default {
                     this.playerViewportHeight = newWidth / viewportAspectRatio;
                     this.playerViewportX = oldRight - this.playerViewportWidth;
                 }
-            }
-            else if (this.isPanning) {
+            } else if (this.isPanning) {
                 // Disable panning in player view
                 this.canvas.style.cursor = 'grabbing';
                 this.canvasOffsetX += click_X - this.panStart.x;
                 this.canvasOffsetY += click_Y - this.panStart.y;
                 this.panStart = {x: click_X, y: click_Y};
-            }
-            else if (this.isResizing && this.draggedImage) {
+            } else if (this.isResizing && this.draggedImage) {
                 const img = this.draggedImage;
                 const minSize = 20;
 
@@ -577,8 +613,7 @@ export default {
                     img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
                     img.width = newWidth;
                 }
-            }
-            else if (this.isDragging && this.draggedImage) {
+            } else if (this.isDragging && this.draggedImage) {
                 this.canvas.style.cursor = 'move';
                 this.draggedImage.x = click_position.x - this.dragOffset.x;
                 this.draggedImage.y = click_position.y - this.dragOffset.y;
@@ -586,8 +621,7 @@ export default {
 
             if (this.selectedLayer !== "Fog") {
                 this.fogLayer.cancelCurrentPolygon()
-            }
-            else {
+            } else {
                 if (!this.isPanning) {
                     this.canvas.style.cursor = 'crosshair';
                 }
@@ -1039,6 +1073,7 @@ export default {
 
         async loadTable(event) {
             const file = event.target.files[0];
+            this.isLoading = true;
             if (!file) return;
             try {
                 const zip = new JSZip();

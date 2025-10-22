@@ -67,6 +67,7 @@
                 <div v-else class="sub-section">
                     <h3>Add Image to {{ selectedLayer }} Layer</h3>
                     <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
+                    <button class="small-btn" @click="processSelectedImage()">Process selected image</button>
                 </div>
             </div>
             
@@ -85,7 +86,7 @@
     <div v-if="isLoading" class="overlay">
       <div class="loader">
         <div class="spinner"></div>
-        <p>Generating file...</p>
+        <p>Loading...</p>
       </div>
     </div>
 </div>

@@ -80,4 +80,8 @@ export default class GridLayer {
         }
         return {"x": coordinates.x, "y": coordinates.y}
     }
+
+    get_grid_cell_size(){
+        return this.gridCellSize;
+    }
 }
