@@ -3,6 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "main.js",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
@@ -11,7 +12,10 @@
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "build-only": "vite build",
-    "type-check": "vue-tsc --build"
+    "type-check": "vue-tsc --build",
+    "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
+    "electron:build": "npm run build && electron-builder",
+    "electron:start": "electron ."
   },
   "dependencies": {
     "@turf/turf": "^7.2.0",
@@ -26,10 +30,14 @@
     "@types/node": "^22.18.6",
     "@vitejs/plugin-vue": "^6.0.1",
     "@vue/tsconfig": "^0.8.1",
+    "concurrently": "^9.2.1",
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12",
     "npm-run-all2": "^8.0.4",
     "typescript": "~5.9.0",
     "vite": "^7.1.7",
     "vite-plugin-vue-devtools": "^8.0.2",
-    "vue-tsc": "^3.1.0"
+    "vue-tsc": "^3.1.0",
+    "wait-on": "^9.0.1"
   }
 }

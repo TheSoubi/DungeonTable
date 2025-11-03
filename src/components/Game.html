@@ -30,7 +30,6 @@
                     <button class="main-button" @click="$refs.zipInput.click()" >Open Table</button>
                     <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
                     <button class="main-button" @click="saveTable(map)" >Save Table</button>
-                    <button class="main-button" :class="{ inactive: !isMagnetEnabled }" @click="toggleMagnet()">Magnet</button>
                 </div>
             </div>
 
@@ -59,6 +58,7 @@
                             Enable Fog
                             <input type="checkbox" v-model="fogLayer.isFogEnabled" @change="renderCanvas" />
                         </label>
+                        <button class="small-btn" :class="{ inactive: !isMagnetEnabled }" @click="toggleMagnet()">Magnet</button>
                         <button class="small-btn" @click="eraseLastFogDrawing()">Erase last drawing</button>
                         <button class="small-btn" @click="eraseAllFogDrawings()">Erase all drawings</button>
                     </div>
