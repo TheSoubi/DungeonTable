@@ -1,16 +1,16 @@
 <template>
   <div id="app">
-    <Game />
+    <MainInterface/>
   </div>
 </template>
 
 <script>
-import Game from './components/Game.vue';
+import MainInterface from './components/MainInterface.vue';
 
 export default {
   name: 'App',
   components: {
-    Game
+    MainInterface
   }
 };
 </script>
