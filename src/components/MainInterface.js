@@ -79,7 +79,7 @@ export default {
         this.gridLayer = new GridLayer();
 
         this.gmFlagImg = new Image();
-        this.gmFlagImg.src = 'assets/GM_layer_flag.svg';
+        this.gmFlagImg.src = '/images/GM_layer_flag.svg';
     },
     beforeUnmount() {
         window.removeEventListener('resize', debounce(this.handleResize, 200));

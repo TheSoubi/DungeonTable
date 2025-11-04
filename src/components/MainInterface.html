@@ -73,8 +73,8 @@
             <div class="section">
                 <h3>Player View</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: row;">
-                    <button class="main-button" @click="openPlayerView">Open in new tab</button>
-                    <button class="main-button" :class="{ inactive: !isPlayerViewportEnabled }" @click="togglePlayerViewport()">Show/Hide player's view</button>
+                    <button class="main-button" @click="openPlayerView">Open player's view window</button>
+                    <button class="main-button" :class="{ inactive: !isPlayerViewportEnabled }" @click="togglePlayerViewport()">Show/hide player's view box</button>
                     <button class="main-button" @click="broadcastFullUpdate()">Force refresh</button>
                 </div>
             </div>
