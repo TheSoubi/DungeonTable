@@ -13,19 +13,18 @@
         :class="{ 'player-canvas': isPlayerView }"
     ></canvas>
 
-    <div v-if="!isPlayerView" class="toolbox" :class="{ minimized: toolboxMinimized }">
+    <div v-if="!isPlayerView" class="toolbox" :class="{ minimized: isToolboxMinimized }">
         <div class="toolbox-header">
             <h2>Dungeon Table</h2>
-            <button @click="toolboxMinimized = !toolboxMinimized" class="minimize-btn">
-                {{ toolboxMinimized ? '+' : '-' }}
+            <button @click="isToolboxMinimized = !isToolboxMinimized" class="minimize-btn">
+                {{ isToolboxMinimized ? '+' : '-' }}
             </button>
         </div>
         
-        <div v-if="!toolboxMinimized" class="toolbox-content">
+        <div v-if="!isToolboxMinimized" class="toolbox-content">
 
             <!-- TABLE SECTION -->
             <div class="section">
-                <h3>Tools</h3>
                 <div style="display: flex; gap: 10px;">
                     <button class="main-button" @click="$refs.zipInput.click()" >Open Table</button>
                     <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
@@ -56,7 +55,7 @@
                     <div class="tool-controls">
                         <label>
                             Enable Fog
-                            <input type="checkbox" v-model="fogLayer.isFogEnabled" @change="renderCanvas" />
+                            <input type="checkbox" v-model="isFogEnabled" @click="toggleFog()" />
                         </label>
                         <button class="small-btn" :class="{ inactive: !isMagnetEnabled }" @click="toggleMagnet()">Magnet</button>
                         <button class="small-btn" @click="eraseLastFogDrawing()">Erase last drawing</button>
@@ -67,15 +66,14 @@
                 <div v-else class="sub-section">
                     <h3>Add Image to {{ selectedLayer }} Layer</h3>
                     <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
-                    <button class="small-btn" @click="processSelectedImage()">Process selected image</button>
+                    <button v-if="selectedLayer === 'Map'" class="small-btn" @click="processSelectedImage()">Auto Rescale Map</button>
                 </div>
             </div>
             
             <div class="section">
                 <h3>Player View</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: row;">
-                    <button class="main-button" @click="openPlayerView">Open player's view window</button>
-                    <button class="main-button" :class="{ inactive: !isPlayerViewportEnabled }" @click="togglePlayerViewport()">Show/hide player's view box</button>
+                    <button class="main-button" @click="openPlayerView">Open Player's Window</button>
                     <button class="main-button" @click="broadcastFullUpdate()">Force refresh</button>
                 </div>
             </div>

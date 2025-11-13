@@ -12,6 +12,10 @@ export default class FogLayer {
         this.displayedPolygons = [];
     }
 
+    setFogVisibility(isEnabled) {
+        this.isFogEnabled = isEnabled;
+    }
+
     handleMouseUp(x, y) {
         try {
             if (this.isFogEnabled) {
@@ -66,16 +70,6 @@ export default class FogLayer {
       } else {
         return false;
       }
-    }
-
-    polygonToList(polygon) {
-        const converted = polygon.map(point => [point.x, point.y]);
-        return [converted]
-    }
-
-    listToPolygon(list) {
-        const converted = list.map(([x, y]) => ({ x, y }));
-        return converted
     }
 
     toTurfPolygon(poly) {
