@@ -21,19 +21,19 @@ function createMainWindow() {
     });
     mainWindow.setMenuBarVisibility(false)
 
-    // Charger l'URL de développement ou le fichier de production
     const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     if (isDev) {
         mainWindow.loadURL('http://localhost:5173');
-        mainWindow.webContents.openDevTools(); // Ouvrir les outils de développement
+        mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
-        mainWindow.webContents.openDevTools();
+        // mainWindow.webContents.openDevTools();
     }
 }
 
 // Fonction pour créer la fenêtre secondaire
 function createSecondaryWindow(url) {
+    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     secondaryWindow = new BrowserWindow({
         width: 600,
         height: 400,
@@ -49,6 +49,9 @@ function createSecondaryWindow(url) {
 
     // Charger l'URL ou le fichier HTML de la fenêtre secondaire
     secondaryWindow.loadURL(url);
+    if (isDev) {
+        secondaryWindow.webContents.openDevTools();
+    }
 
     // Fermer la fenêtre secondaire quand elle est fermée
     secondaryWindow.on('closed', () => {

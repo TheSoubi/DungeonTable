@@ -1,7 +1,8 @@
 import JSZip from "jszip";
 import {saveAs} from 'file-saver';
-import FogLayer from "./Fog";
-import GridLayer from "./Grid";
+import FogLayer from "./FogLayer";
+import GridLayer from "./GridLayer";
+import ImageLayer from "./ImageLayer";
 import debounce from 'lodash.debounce';
 
 export default {
@@ -12,13 +13,12 @@ export default {
             ctx: null,
             editable_layers: ['Map', 'Grid', 'Token', 'Fog', 'GM'],
             selectedLayer: 'Map',
-            layerImages: {
-                Map: [],
-                Token: [],
-                GM: []
-            },
+            mapLayer: null,
+            gridLayer: null,
+            tokenLayer: null,
+            GMLayer: null,
+            imageLayers: null,
             hasClicked: false,
-            selectedImageId: null,
             isDragging: false,
             isMoving: false,
             draggedImage: null,
@@ -27,10 +27,9 @@ export default {
             resizeCorner: null,
             resizeStartSize: {width: 0, height: 0},
             resizeStartPos: {x: 0, y: 0},
-            resizeAspectRatio: 1,
             canvasWidth: 0,
             canvasHeight: 0,
-            toolboxMinimized: false,
+            isToolboxMinimized: false,
             zoomLevel: 1,
             canvasOffsetX: 0,
             canvasOffsetY: 0,
@@ -46,43 +45,46 @@ export default {
             isResizingViewport: false,
             viewportDragOffset: {x: 0, y: 0},
             viewportResizeCorner: null,
-            isPlayerViewportEnabled: false,
             mapName: '',
-            isShowingOpenMapDialog: false,
-            isShowingSaveMapDialog: false,
             savedMaps: [],
             isLoading: false,
             fogLayer: null,
             gmFlagImg: null,
-            isMagnetEnabled: false
+            isMagnetEnabled: false,
+            isFogEnabled: false
         };
     },
     created() {
-        this.createGame()
-        window.addEventListener('resize', debounce(this.handleResize, 100));
+        this.createGame();
+        window.addEventListener('resize', debounce(this.handleWindowResize, 100));
 
         // Check if this is player view
         const urlParams = new URLSearchParams(window.location.search);
         this.isPlayerView = urlParams.get('mode') === 'player';
 
-        // Set up BroadcastChannel for synchronization
+        // Set up BroadcastChannel for synchronization between main window and player's window
         this.broadcastChannel = new BroadcastChannel('game-sync');
         this.broadcastChannel.onmessage = (event) => {
             this.handleBroadcastMessage(event.data);
         };
 
+        // Create all layers
         this.fogLayer = new FogLayer(this.isPlayerView);
         this.fogLayer.setUpdateCallback(() => {
-            this.broadcastFogUpdate()
+            this.broadcastFullUpdate()
         });
-
         this.gridLayer = new GridLayer();
-
-        this.gmFlagImg = new Image();
-        this.gmFlagImg.src = '/images/GM_layer_flag.svg';
+        this.mapLayer = new ImageLayer("Map");
+        this.tokenLayer = new ImageLayer("Token");
+        this.GMLayer = new ImageLayer("GM");
+        this.imageLayers = {"Map": this.mapLayer, "Token": this.tokenLayer, "GM": this.GMLayer};
+        
+        if (this.isPlayerView) {
+            this.broadcastUpdateRequest();
+        }
     },
     beforeUnmount() {
-        window.removeEventListener('resize', debounce(this.handleResize, 200));
+        window.removeEventListener('resize', debounce(this.handleWindowResize, 200));
         if (this.broadcastChannel) {
             this.broadcastChannel.close();
         }
@@ -102,15 +104,21 @@ export default {
         initCanvas() {
             this.canvas = this.$refs.canvas;
             this.ctx = this.canvas.getContext('2d');
-            this.handleResize();
+            this.handleWindowResize();
             this.renderCanvas();
         },
 
         selectLayer(layer) {
+            if (this.selectedLayer in this.imageLayers) {
+                this.imageLayers[this.selectedLayer].resetImageSelection();
+            } else if (this.selectedLayer === "Fog") {
+                this.fogLayer.cancelCurrentPolygon();
+            }
             this.selectedLayer = layer;
+            this.renderCanvas();
         },
 
-        handleResize() {
+        handleWindowResize() {
             if (!this.canvas) return;
             this.canvasWidth = window.innerWidth;
             this.canvasHeight = window.innerHeight;
@@ -136,51 +144,26 @@ export default {
             };
         },
 
-        handleImageUpload(event) {
+        async handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file || this.selectedLayer === 'Grid') return;
 
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const img = new Image();
-                img.onload = () => {
-                    let width = img.width;
-                    let height = img.height;
-                    const maxWidth = this.canvasWidth * 0.8;
-                    const maxHeight = this.canvasHeight * 0.8;
-
-                    if (width > maxWidth || height > maxHeight) {
-                        const widthRatio = maxWidth / width;
-                        const heightRatio = maxHeight / height;
-                        const ratio = Math.min(widthRatio, heightRatio);
-
-                        width = width * ratio;
-                        height = height * ratio;
-                    }
-
-                    let imageObject = {
-                        img: img,
-                        x: 100,
-                        y: 100,
-                        width: width,
-                        height: height,
-                        layer: this.selectedLayer
-                    };
-
-                    this.layerImages[this.selectedLayer].push(imageObject);
-                    this.selectedImageId = this.layerImages[this.selectedLayer].length - 1;
-                    this.renderCanvas();
-                    this.broadcastImageUpdate();
-                };
-                img.src = e.target.result;
-            };
-            reader.readAsDataURL(file);
+            let maxWidth = null;
+            let maxHeight = null;
+            if (this.selectedLayer === 'Map') {
+                maxWidth = this.canvasWidth * 0.8;
+                maxHeight = this.canvasHeight * 0.8;
+            }
+            await this.imageLayers[this.selectedLayer].addImage(file, null, null, null, null);
+            this.imageLayers[this.selectedLayer].selectLastImage();
+            this.renderCanvas();
+            this.broadcastFullUpdate();
             event.target.value = '';
         },
 
         renderCanvas() {
+            // console.log("render canvas");
             if (!this.ctx) return;
-
             this.ctx.clearRect(0, 0, this.canvasWidth, this.canvasHeight);
 
             // Apply zoom and pan transforms
@@ -188,14 +171,15 @@ export default {
             this.ctx.translate(this.canvasOffsetX, this.canvasOffsetY);
             this.ctx.scale(this.zoomLevel, this.zoomLevel);
 
-            this.drawLayerImages('Map');
+            this.mapLayer.drawOnCanvas(this.canvas, this.zoomLevel);
             this.gridLayer.drawOnCanvas(this.canvas, this.canvasOffsetX, this.canvasOffsetY, this.canvasWidth, this.canvasHeight, this.zoomLevel);
-            this.drawLayerImages('Token');
+            this.tokenLayer.drawOnCanvas(this.canvas, this.zoomLevel);
             this.fogLayer.drawOnCanvas(this.canvas, this.canvasOffsetX, this.canvasOffsetY, this.canvasWidth, this.canvasHeight, this.zoomLevel);
-            this.drawLayerImages('GM');
-
-            // Draw player viewport rectangle in GM view
-            if (!this.isPlayerView && this.isPlayerViewportEnabled) {
+            if (!this.isPlayerView) {
+                this.GMLayer.drawOnCanvas(this.canvas, this.zoomLevel);
+            }
+            // Draw player viewport rectangle above all layers
+            if (!this.isPlayerView) {
                 this.drawPlayerViewport();
             }
             this.ctx.restore();
@@ -204,15 +188,9 @@ export default {
         drawPlayerViewport() {
             // Draw blue rectangle showing player viewport
             this.ctx.strokeStyle = '#0066ff';
-            this.ctx.lineWidth = 3 / this.zoomLevel;
+            this.ctx.lineWidth = 5 / this.zoomLevel;
+            this.ctx.setLineDash([10, 10]);
             this.ctx.strokeRect(
-                this.playerViewportX,
-                this.playerViewportY,
-                this.playerViewportWidth,
-                this.playerViewportHeight
-            );
-            this.ctx.fillStyle = '#0066ff22';
-            this.ctx.fillRect(
                 this.playerViewportX,
                 this.playerViewportY,
                 this.playerViewportWidth,
@@ -227,140 +205,73 @@ export default {
             this.ctx.fillRect(this.playerViewportX - handleSize / 2, this.playerViewportY + this.playerViewportHeight - handleSize / 2, handleSize, handleSize);
             this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth - handleSize / 2, this.playerViewportY + this.playerViewportHeight - handleSize / 2, handleSize, handleSize);
 
-
             // Label
             this.ctx.fillStyle = '#0066ff';
-            this.ctx.font = `bold ${14 / this.zoomLevel}px Arial`;
-            this.ctx.fillText("Player's View", this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY - 10 / this.zoomLevel);
+            this.ctx.font = `bold ${15 / this.zoomLevel}px Arial`;
+            this.ctx.fillText("Player's View", this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY + 20 / this.zoomLevel);
         },
 
-        drawLayerImages(layer) {
-            // Hide GM layer in player view
-            if (this.isPlayerView && layer === 'GM') return;
-
-            if (!this.layerImages[layer]) return;
-
-            // const imageObj of images
-            for (let image_index = 0; image_index < this.layerImages[layer].length; image_index++) {
-                let imageObj = this.layerImages[layer][image_index]
-                this.ctx.drawImage(
-                    imageObj.img,
-                    imageObj.x,
-                    imageObj.y,
-                    imageObj.width,
-                    imageObj.height
-                );
-                if (layer === "GM") {
-                    this.ctx.drawImage(this.gmFlagImg, imageObj.x - 10, imageObj.y - 10, 25, 25);
-                }
-                if (layer === this.selectedLayer && !this.isPanning && image_index === this.selectedImageId) {
-                    this.ctx.strokeStyle = '#00a100';
-                    this.ctx.lineWidth = 2 / this.zoomLevel;
-                    this.ctx.strokeRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
-                    this.ctx.fillStyle = '#00a10022';
-                    this.ctx.fillRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
-
-                    // Draw resize handles at corners and edges
-                    const handleSize = 8 / this.zoomLevel;
-                    this.ctx.fillStyle = '#00a100ff';
-
-                    // Corner handles
-                    this.ctx.fillRect(imageObj.x - handleSize / 2, imageObj.y - handleSize / 2, handleSize, handleSize);
-                    this.ctx.fillRect(imageObj.x + imageObj.width - handleSize / 2, imageObj.y - handleSize / 2, handleSize, handleSize);
-                    this.ctx.fillRect(imageObj.x - handleSize / 2, imageObj.y + imageObj.height - handleSize / 2, handleSize, handleSize);
-                    this.ctx.fillRect(imageObj.x + imageObj.width - handleSize / 2, imageObj.y + imageObj.height - handleSize / 2, handleSize, handleSize);
-
-                    // Edge handles
-                    const edgeHandleSize = 6 / this.zoomLevel;
-                    this.ctx.fillStyle = '#0088ff';
-
-                    this.ctx.fillRect(imageObj.x + imageObj.width / 2 - edgeHandleSize / 2, imageObj.y - edgeHandleSize / 2, edgeHandleSize, edgeHandleSize);
-                    this.ctx.fillRect(imageObj.x + imageObj.width - edgeHandleSize / 2, imageObj.y + imageObj.height / 2 - edgeHandleSize / 2, edgeHandleSize, edgeHandleSize);
-                    this.ctx.fillRect(imageObj.x + imageObj.width / 2 - edgeHandleSize / 2, imageObj.y + imageObj.height - edgeHandleSize / 2, edgeHandleSize, edgeHandleSize);
-                    this.ctx.fillRect(imageObj.x - edgeHandleSize / 2, imageObj.y + imageObj.height / 2 - edgeHandleSize / 2, edgeHandleSize, edgeHandleSize);
-                }
+        getCursorTypeAtPosition(mouse_position, zoomLevel, is_click_pressed) {
+            const closest_viewport_handle = this.getViewportResizeHandle(mouse_position);
+            const closest_move_handle = this.getViewportMoveHandle(mouse_position);
+            if (closest_viewport_handle !== null) {
+                if (closest_viewport_handle === 'top-left') return 'nw-resize';
+                else if (closest_viewport_handle === 'top-right') return 'ne-resize';
+                else if (closest_viewport_handle === 'bottom-left') return 'sw-resize';
+                else if (closest_viewport_handle === 'bottom-right') return 'se-resize';
+                else if (closest_viewport_handle === 'top') return 'n-resize';
+                else if (closest_viewport_handle === 'bottom') return 's-resize';
+                else if (closest_viewport_handle === 'left') return 'w-resize';
+                else if (closest_viewport_handle === 'right') return 'e-resize';
+                else return 'default';
+            } else if (closest_move_handle !== null) return 'move';
+            else {
+                if (this.selectedLayer in this.imageLayers) {
+                    const image_under_click = this.imageLayers[this.selectedLayer].getImageAtPosition(mouse_position);
+                    const selected_image = this.imageLayers[this.selectedLayer].getSelectedImage();
+                    // console.log(image_under_click);
+                    if (image_under_click !== null) {
+                        const closest_resize_handle = this.imageLayers[this.selectedLayer].getClosestResizeHandle(mouse_position, zoomLevel);
+                        if (closest_resize_handle !== null) {
+                            if (closest_resize_handle.handle_name === 'top-left') return 'nw-resize';
+                            else if (closest_resize_handle.handle_name === 'top-right') return 'ne-resize';
+                            else if (closest_resize_handle.handle_name === 'bottom-left') return 'sw-resize';
+                            else if (closest_resize_handle.handle_name === 'bottom-right') return 'se-resize';
+                            else if (closest_resize_handle.handle_name === 'top') return 'n-resize';
+                            else if (closest_resize_handle.handle_name === 'bottom') return 's-resize';
+                            else if (closest_resize_handle.handle_name === 'left') return 'w-resize';
+                            else if (closest_resize_handle.handle_name === 'right') return 'e-resize';
+                            else return 'default';
+                        } else {
+                            if (selected_image !== null && image_under_click.id === selected_image.id) {
+                                return 'move';
+                            } else return 'pointer';
+                        }
+                    } else {
+                        return 'default';
+                    }
+                } else return 'default';
             }
         },
 
-        isClickInImage(click_position, img) {
-            return click_position.x >= img.x &&
-                click_position.x <= img.x + img.width &&
-                click_position.y >= img.y &&
-                click_position.y <= img.y + img.height
-        },
-
-        getCornerAt(img, worldX, worldY) {
-            const handleSize = 8 / this.zoomLevel;
-            const threshold = handleSize;
-
-            // Check corners
-            if (Math.abs(worldX - img.x) < threshold && Math.abs(worldY - img.y) < threshold) {
-                return 'top-left';
-            }
-            if (Math.abs(worldX - (img.x + img.width)) < threshold && Math.abs(worldY - img.y) < threshold) {
-                return 'top-right';
-            }
-            if (Math.abs(worldX - img.x) < threshold && Math.abs(worldY - (img.y + img.height)) < threshold) {
-                return 'bottom-left';
-            }
-            if (Math.abs(worldX - (img.x + img.width)) < threshold && Math.abs(worldY - (img.y + img.height)) < threshold) {
-                return 'bottom-right';
-            }
-
-            // Check edges
-            const edgeThreshold = 6 / this.zoomLevel;
-
-            if (Math.abs(worldX - (img.x + img.width / 2)) < edgeThreshold && Math.abs(worldY - img.y) < edgeThreshold) {
-                return 'top';
-            }
-            if (Math.abs(worldX - (img.x + img.width)) < edgeThreshold && Math.abs(worldY - (img.y + img.height / 2)) < edgeThreshold) {
-                return 'right';
-            }
-            if (Math.abs(worldX - (img.x + img.width / 2)) < edgeThreshold && Math.abs(worldY - (img.y + img.height)) < edgeThreshold) {
-                return 'bottom';
-            }
-            if (Math.abs(worldX - img.x) < edgeThreshold && Math.abs(worldY - (img.y + img.height / 2)) < edgeThreshold) {
-                return 'left';
-            }
-
-            return null;
-        },
-
-        getViewportHandleAt(worldX, worldY) {
+        getViewportResizeHandle(position) {
             const handleSize = 10 / this.zoomLevel;
-            const threshold = handleSize;
+            const threshold = 2 * handleSize;
+            if (Math.abs(position.x - this.playerViewportX) < threshold && Math.abs(position.y - this.playerViewportY) < threshold) return 'top-left';
+            else if (Math.abs(position.x - (this.playerViewportX + this.playerViewportWidth)) < threshold && Math.abs(position.y - this.playerViewportY) < threshold) return 'top-right';
+            else if (Math.abs(position.x - this.playerViewportX) < threshold && Math.abs(position.y - (this.playerViewportY + this.playerViewportHeight)) < threshold) return 'bottom-left';
+            else if (Math.abs(position.x - (this.playerViewportX + this.playerViewportWidth)) < threshold && Math.abs(position.y - (this.playerViewportY + this.playerViewportHeight)) < threshold) return 'bottom-right';
+            else return null;
+        },
 
-            // Check corners first
-            if (Math.abs(worldX - this.playerViewportX) < threshold && Math.abs(worldY - this.playerViewportY) < threshold) {
-                return 'top-left';
-            }
-            if (Math.abs(worldX - (this.playerViewportX + this.playerViewportWidth)) < threshold && Math.abs(worldY - this.playerViewportY) < threshold) {
-                return 'top-right';
-            }
-            if (Math.abs(worldX - this.playerViewportX) < threshold && Math.abs(worldY - (this.playerViewportY + this.playerViewportHeight)) < threshold) {
-                return 'bottom-left';
-            }
-            if (Math.abs(worldX - (this.playerViewportX + this.playerViewportWidth)) < threshold && Math.abs(worldY - (this.playerViewportY + this.playerViewportHeight)) < threshold) {
-                return 'bottom-right';
-            }
-
-            // Check edges
-            const edgeThreshold = 8 / this.zoomLevel;
-
-            if (Math.abs(worldX - (this.playerViewportX + this.playerViewportWidth / 2)) < edgeThreshold && Math.abs(worldY - this.playerViewportY) < edgeThreshold) {
-                return 'top';
-            }
-            if (Math.abs(worldX - (this.playerViewportX + this.playerViewportWidth)) < edgeThreshold && Math.abs(worldY - (this.playerViewportY + this.playerViewportHeight / 2)) < edgeThreshold) {
-                return 'right';
-            }
-            if (Math.abs(worldX - (this.playerViewportX + this.playerViewportWidth / 2)) < edgeThreshold && Math.abs(worldY - (this.playerViewportY + this.playerViewportHeight)) < edgeThreshold) {
-                return 'bottom';
-            }
-            if (Math.abs(worldX - this.playerViewportX) < edgeThreshold && Math.abs(worldY - (this.playerViewportY + this.playerViewportHeight / 2)) < edgeThreshold) {
-                return 'left';
-            }
-
-            return null;
+        getViewportMoveHandle(position) {
+            const handleSize = 10 / this.zoomLevel;
+            const threshold = 2 * handleSize;
+            if (Math.abs(position.x - this.playerViewportX) < threshold && position.y > this.playerViewportY && position.y < this.playerViewportY + this.playerViewportHeight) return 'move';
+            else if (Math.abs(position.x - this.playerViewportWidth - this.playerViewportX) < threshold && position.y > this.playerViewportY && position.y < this.playerViewportY + this.playerViewportHeight) return 'move';
+            else if (Math.abs(position.y - this.playerViewportY) < threshold && position.x > this.playerViewportX && position.x < this.playerViewportX + this.playerViewportWidth) return 'move';
+            else if (Math.abs(position.y - this.playerViewportHeight - this.playerViewportY) < threshold && position.x > this.playerViewportX && position.x < this.playerViewportX + this.playerViewportWidth) return 'move';
+            else return null;
         },
 
         handleMouseDown(event) {
@@ -374,70 +285,52 @@ export default {
             const click_position = this.screenToWorld(click_X, click_Y);
             this.isMoving = false;
 
-            // Check viewport rectangle first (in GM view only)
-            if (this.isPlayerViewportEnabled) {
-                const viewportHandle = this.getViewportHandleAt(click_position.x, click_position.y);
-                if (viewportHandle) {
-                    this.isResizingViewport = true;
-                    this.viewportResizeCorner = viewportHandle;
-                    return;
-                }
-
-                // Check if clicking inside viewport rectangle for dragging
-                if (click_position.x >= this.playerViewportX &&
-                    click_position.x <= this.playerViewportX + this.playerViewportWidth &&
-                    click_position.y >= this.playerViewportY &&
-                    click_position.y <= this.playerViewportY + this.playerViewportHeight) {
-                    this.isDraggingViewport = true;
-                    this.viewportDragOffset = {
-                        x: click_position.x - this.playerViewportX,
-                        y: click_position.y - this.playerViewportY
-                    };
-                    return;
-                }
+            // Check viewport rectangle first
+            const viewportResizeHandle = this.getViewportResizeHandle(click_position);
+            const viewportMoveHandle = this.getViewportMoveHandle(click_position);
+            if (viewportResizeHandle !== null) {
+                this.isResizingViewport = true;
+                this.viewportResizeCorner = viewportResizeHandle;
+                return;
+            }
+            if (viewportMoveHandle !== null) {
+                this.isDraggingViewport = true;
+                this.viewportDragOffset = {
+                    x: click_position.x - this.playerViewportX,
+                    y: click_position.y - this.playerViewportY
+                };
+                return;
             }
             // Handling Layer's manipulation
             if (this.selectedLayer === 'Grid') {
                 this.isPanning = true;
                 this.panStart = {x: click_X, y: click_Y};
                 this.renderCanvas();
-            } else {
-                const images = this.layerImages[this.selectedLayer];
+            } else if (this.selectedLayer in this.imageLayers) {
                 let is_one_object_selected = false;
-                if (images) {
-                    for (let i = images.length - 1; i >= 0; i--) {
-                        const img = images[i];
-
-                        // Check resize handles
-                        const corner = this.getCornerAt(img, click_position.x, click_position.y);
-                        if (corner) {
-                            this.isResizing = true;
-                            this.resizeCorner = corner;
-                            this.draggedImage = img;
-                            this.resizeStartSize = {width: img.width, height: img.height};
-                            this.resizeStartPos = {x: img.x, y: img.y};
-                            this.resizeAspectRatio = img.width / img.height;
-                            is_one_object_selected = true;
-                            break;
-                        }
-
-                        // Check if clicking inside image
-                        if (this.isClickInImage(click_position, img) && this.selectedImageId !== null) {
-                            this.isDragging = true;
-                            this.draggedImage = img;
-                            this.dragOffset = {
-                                x: click_position.x - img.x,
-                                y: click_position.y - img.y
-                            };
-                            is_one_object_selected = true;
-                            break;
-                        } else {
-                            this.selectedImageId = null;
-                        }
-                    }
-                    // Start panning if no object clicked
+                const selected_handle = this.imageLayers[this.selectedLayer].getClosestResizeHandle(click_position, this.zoomLevel);
+                if (selected_handle !== null) {
+                    this.isResizing = true;
+                    this.imageLayers[this.selectedLayer].selectHandle(selected_handle.handle_name);
+                    this.draggedImage = selected_handle.image;
+                    this.resizeStartSize = {width: selected_handle.image.width, height: selected_handle.image.height};
+                    this.resizeStartPos = {x: selected_handle.image.x, y: selected_handle.image.y};
+                    is_one_object_selected = true;
+                    return;
                 }
-                if (!is_one_object_selected) {
+                const selected_image = this.imageLayers[this.selectedLayer].getImageAtPosition(click_position);
+                const current_image_selection = this.imageLayers[this.selectedLayer].getSelectedImage();
+                if (selected_image !== null && current_image_selection !== null && selected_image.id === current_image_selection.id) {
+                    this.isDragging = true;
+                    this.draggedImage = selected_image.image;
+                    this.dragOffset = {
+                        x: click_position.x - selected_image.image.x,
+                        y: click_position.y - selected_image.image.y
+                    };
+                    is_one_object_selected = true;
+                    this.imageLayers[this.selectedLayer].selectImageByID(selected_image.id);
+                    return;
+                } else {
                     this.isPanning = true;
                     this.panStart = {x: click_X, y: click_Y};
                     this.renderCanvas();
@@ -445,44 +338,11 @@ export default {
             }
         },
 
-        async sendImageToServer(base64Image) {
-            const response = await fetch('http://localhost:5000/api/detect_grid_size', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({image: base64Image}),
-            });
-
-            if (!response.ok) {
-                throw new Error('Error while sending image.');
-            }
-
-            return await response.json();
-        },
-
         async processSelectedImage() {
-            if (this.layerImages[this.selectedLayer][this.selectedImageId]) {
-                let image = this.layerImages[this.selectedLayer][this.selectedImageId];
-                let base64_img = image.img.src;
-                this.isLoading = true;
-                await this.sendImageToServer(base64_img)
-                    .then(processedImage => {
-                        const img = new Image();
-                        const current_grid_size = this.gridLayer.get_grid_cell_size();
-                        const x_ratio = current_grid_size / processedImage.x_grid_size;
-                        const y_ratio = current_grid_size / processedImage.y_grid_size;
-                        console.log("Current grid size", current_grid_size, "server answer", processedImage);
-                        this.layerImages[this.selectedLayer][this.selectedImageId].width = x_ratio * processedImage.width;
-                        this.layerImages[this.selectedLayer][this.selectedImageId].height = y_ratio * processedImage.height;
-                        this.renderCanvas();
-                        this.isLoading = false;
-                    })
-                    .catch(error => {
-                        console.error('Error: ', error);
-                        this.isLoading = false;
-                    });
-                this.isLoading = false;
+            if (this.selectedLayer in this.imageLayers) {
+                const grid_cell_size = this.gridLayer.get_grid_cell_size()
+                await this.imageLayers[this.selectedLayer].processSelectedImage(grid_cell_size);
+                this.renderCanvas();
             }
         },
 
@@ -496,132 +356,36 @@ export default {
             const click_position = this.screenToWorld(click_X, click_Y);
             this.isMoving = true;
             this.canvas.style.cursor = 'default';
+            let is_state_changed = false;
 
             if (this.isDraggingViewport) {
                 this.canvas.style.cursor = 'grabbing';
                 this.playerViewportX = click_position.x - this.viewportDragOffset.x;
                 this.playerViewportY = click_position.y - this.viewportDragOffset.y;
+                is_state_changed = true;
             } else if (this.isResizingViewport) {
-                const minSize = 100;
-                const viewportAspectRatio = this.playerViewportWidth / this.playerViewportHeight;
-                this.canvas.style.cursor = 'nwse-resize';
-                // Corner resizing - maintain aspect ratio
-                if (this.viewportResizeCorner === 'bottom-right') {
-                    const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                } else if (this.viewportResizeCorner === 'top-left') {
-                    const oldRight = this.playerViewportX + this.playerViewportWidth;
-                    const oldBottom = this.playerViewportY + this.playerViewportHeight;
-                    const newWidth = Math.max(minSize, oldRight - click_position.x);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                    this.playerViewportX = oldRight - this.playerViewportWidth;
-                    this.playerViewportY = oldBottom - this.playerViewportHeight;
-                } else if (this.viewportResizeCorner === 'top-right') {
-                    const oldBottom = this.playerViewportY + this.playerViewportHeight;
-                    const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                    this.playerViewportY = oldBottom - this.playerViewportHeight;
-                } else if (this.viewportResizeCorner === 'bottom-left') {
-                    const oldRight = this.playerViewportX + this.playerViewportWidth;
-                    const newWidth = Math.max(minSize, oldRight - click_position.x);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                    this.playerViewportX = oldRight - this.playerViewportWidth;
-                }
-                // Edge resizing - also maintain aspect ratio
-                else if (this.viewportResizeCorner === 'top') {
-                    const oldBottom = this.playerViewportY + this.playerViewportHeight;
-                    const newHeight = Math.max(minSize, oldBottom - click_position.y);
-                    this.playerViewportHeight = newHeight;
-                    this.playerViewportWidth = newHeight * viewportAspectRatio;
-                    this.playerViewportY = oldBottom - this.playerViewportHeight;
-                } else if (this.viewportResizeCorner === 'right') {
-                    const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                } else if (this.viewportResizeCorner === 'bottom') {
-                    const newHeight = Math.max(minSize, click_position.y - this.playerViewportY);
-                    this.playerViewportHeight = newHeight;
-                    this.playerViewportWidth = newHeight * viewportAspectRatio;
-                } else if (this.viewportResizeCorner === 'left') {
-                    const oldRight = this.playerViewportX + this.playerViewportWidth;
-                    const newWidth = Math.max(minSize, oldRight - click_position.x);
-                    this.playerViewportWidth = newWidth;
-                    this.playerViewportHeight = newWidth / viewportAspectRatio;
-                    this.playerViewportX = oldRight - this.playerViewportWidth;
-                }
+                this.resizeViewport(click_position);
+                is_state_changed = true;
             } else if (this.isPanning) {
-                // Disable panning in player view
                 this.canvas.style.cursor = 'grabbing';
                 this.canvasOffsetX += click_X - this.panStart.x;
                 this.canvasOffsetY += click_Y - this.panStart.y;
                 this.panStart = {x: click_X, y: click_Y};
-            } else if (this.isResizing && this.draggedImage) {
-                const img = this.draggedImage;
-                const minSize = 20;
-
-                // Corner resizing - preserve aspect ratio
-                if (this.resizeCorner === 'bottom-right') {
-                    this.canvas.style.cursor = 'nwse-resize';
-                    const newWidth = Math.max(minSize, click_position.x - img.x);
-                    const newHeight = newWidth / this.resizeAspectRatio;
-                    img.width = newWidth;
-                    img.height = newHeight;
-                } else if (this.resizeCorner === 'bottom-left') {
-                    this.canvas.style.cursor = 'nesw-resize';
-                    const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
-                    const newHeight = newWidth / this.resizeAspectRatio;
-                    img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
-                    img.width = newWidth;
-                    img.height = newHeight;
-                } else if (this.resizeCorner === 'top-right') {
-                    this.canvas.style.cursor = 'nesw-resize';
-                    const newWidth = Math.max(minSize, click_position.x - img.x);
-                    const newHeight = newWidth / this.resizeAspectRatio;
-                    img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
-                    img.width = newWidth;
-                    img.height = newHeight;
-                } else if (this.resizeCorner === 'top-left') {
-                    this.canvas.style.cursor = 'nwse-resize';
-                    const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
-                    const newHeight = newWidth / this.resizeAspectRatio;
-                    img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
-                    img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
-                    img.width = newWidth;
-                    img.height = newHeight;
+                is_state_changed = true;
+            } else {
+                if (this.isResizing && this.draggedImage && this.selectedLayer in this.imageLayers) {
+                    this.imageLayers[this.selectedLayer].resizeSelectedImage(this.resizeStartPos, this.resizeStartSize, click_position);
+                    is_state_changed = true;
+                } else if (this.isDragging && this.draggedImage) {
+                    this.canvas.style.cursor = 'move';
+                    this.draggedImage.x = click_position.x - this.dragOffset.x;
+                    this.draggedImage.y = click_position.y - this.dragOffset.y;
+                    is_state_changed = true;
                 }
-                // Edge resizing - do NOT preserve aspect ratio
-                else if (this.resizeCorner === 'top') {
-                    this.canvas.style.cursor = 'ns-resize';
-                    const newHeight = Math.max(minSize, this.resizeStartPos.y + this.resizeStartSize.height - click_position.y);
-                    img.y = this.resizeStartPos.y + this.resizeStartSize.height - newHeight;
-                    img.height = newHeight;
-                } else if (this.resizeCorner === 'right') {
-                    this.canvas.style.cursor = 'ew-resize';
-                    const newWidth = Math.max(minSize, click_position.x - img.x);
-                    img.width = newWidth;
-                } else if (this.resizeCorner === 'bottom') {
-                    this.canvas.style.cursor = 'ns-resize';
-                    const newHeight = Math.max(minSize, click_position.y - img.y);
-                    img.height = newHeight;
-                } else if (this.resizeCorner === 'left') {
-                    this.canvas.style.cursor = 'ew-resize';
-                    const newWidth = Math.max(minSize, this.resizeStartPos.x + this.resizeStartSize.width - click_position.x);
-                    img.x = this.resizeStartPos.x + this.resizeStartSize.width - newWidth;
-                    img.width = newWidth;
-                }
-            } else if (this.isDragging && this.draggedImage) {
-                this.canvas.style.cursor = 'move';
-                this.draggedImage.x = click_position.x - this.dragOffset.x;
-                this.draggedImage.y = click_position.y - this.dragOffset.y;
+                this.canvas.style.cursor = this.getCursorTypeAtPosition(click_position, this.zoomLevel, this.hasClicked);
             }
 
-            if (this.selectedLayer !== "Fog") {
-                this.fogLayer.cancelCurrentPolygon()
-            } else {
+            if (this.selectedLayer === "Fog") {
                 if (!this.isPanning) {
                     this.canvas.style.cursor = 'crosshair';
                 }
@@ -630,11 +394,67 @@ export default {
                     final_click_position = this.gridLayer.getClosestSnapCoordinates(click_position);
                 }
                 this.fogLayer.handleMouseMove(final_click_position.x, final_click_position.y);
+                is_state_changed = true;
+            } else {
+                this.fogLayer.cancelCurrentPolygon();
             }
-            this.renderCanvas();
-            // if (!this.isPanning && !this.isDragging && !this.isResizing && !this.draggingGridLine && !this.draggingGridAnchor) {
-            //   this.canvas.style.cursor = 'grab';
-            // }
+            if (is_state_changed) {
+                this.renderCanvas();
+            }
+        },
+
+        resizeViewport(click_position) {
+            const minSize = 100;
+            const viewportAspectRatio = this.playerViewportWidth / this.playerViewportHeight;
+            this.canvas.style.cursor = 'nwse-resize';
+            // Corner resizing - maintain aspect ratio
+            if (this.viewportResizeCorner === 'bottom-right') {
+                const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+            } else if (this.viewportResizeCorner === 'top-left') {
+                const oldRight = this.playerViewportX + this.playerViewportWidth;
+                const oldBottom = this.playerViewportY + this.playerViewportHeight;
+                const newWidth = Math.max(minSize, oldRight - click_position.x);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+                this.playerViewportX = oldRight - this.playerViewportWidth;
+                this.playerViewportY = oldBottom - this.playerViewportHeight;
+            } else if (this.viewportResizeCorner === 'top-right') {
+                const oldBottom = this.playerViewportY + this.playerViewportHeight;
+                const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+                this.playerViewportY = oldBottom - this.playerViewportHeight;
+            } else if (this.viewportResizeCorner === 'bottom-left') {
+                const oldRight = this.playerViewportX + this.playerViewportWidth;
+                const newWidth = Math.max(minSize, oldRight - click_position.x);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+                this.playerViewportX = oldRight - this.playerViewportWidth;
+            }
+            // Edge resizing - also maintain aspect ratio
+            else if (this.viewportResizeCorner === 'top') {
+                const oldBottom = this.playerViewportY + this.playerViewportHeight;
+                const newHeight = Math.max(minSize, oldBottom - click_position.y);
+                this.playerViewportHeight = newHeight;
+                this.playerViewportWidth = newHeight * viewportAspectRatio;
+                this.playerViewportY = oldBottom - this.playerViewportHeight;
+            } else if (this.viewportResizeCorner === 'right') {
+                const newWidth = Math.max(minSize, click_position.x - this.playerViewportX);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+            } else if (this.viewportResizeCorner === 'bottom') {
+                const newHeight = Math.max(minSize, click_position.y - this.playerViewportY);
+                this.playerViewportHeight = newHeight;
+                this.playerViewportWidth = newHeight * viewportAspectRatio;
+            } else if (this.viewportResizeCorner === 'left') {
+                const oldRight = this.playerViewportX + this.playerViewportWidth;
+                const newWidth = Math.max(minSize, oldRight - click_position.x);
+                this.playerViewportWidth = newWidth;
+                this.playerViewportHeight = newWidth / viewportAspectRatio;
+                this.playerViewportX = oldRight - this.playerViewportWidth;
+            }
         },
 
         handleMouseUp(event) {
@@ -647,7 +467,7 @@ export default {
                 const click_X = event.clientX - rect.left;
                 const click_Y = event.clientY - rect.top;
                 const click_position = this.screenToWorld(click_X, click_Y);
-                let stateChanged = false;
+                let is_state_changed = false;
 
                 // Snap token layer images to grid
                 if (this.isDragging && this.draggedImage) {
@@ -656,13 +476,12 @@ export default {
                         this.draggedImage.x = new_coordinates.x;
                         this.draggedImage.y = new_coordinates.y;
                     }
-                    this.renderCanvas();
-                    stateChanged = true;
+                    is_state_changed = true;
                 }
 
                 // Broadcast state if anything changed
                 if (this.isDragging || this.isResizing || this.draggingGridLine || this.draggingGridAnchor || this.isDraggingViewport || this.isResizingViewport) {
-                    stateChanged = true;
+                    is_state_changed = true;
                 }
 
                 // Handle Fog
@@ -672,12 +491,24 @@ export default {
                         final_click_position = this.gridLayer.getClosestSnapCoordinates(click_position);
                     }
                     this.fogLayer.handleMouseUp(final_click_position.x, final_click_position.y);
-                    this.renderCanvas();
+                    is_state_changed = true;
+                } else if (this.selectedLayer in this.imageLayers) {
+                    this.imageLayers[this.selectedLayer].resetHandleSelection();
+                    const selected_image = this.imageLayers[this.selectedLayer].getImageAtPosition(click_position);
+                    const current_image_selection = this.imageLayers[this.selectedLayer].getSelectedImage();
+                    if (selected_image !== null && current_image_selection === null && !this.isMoving) {
+                        this.imageLayers[this.selectedLayer].selectImageByID(selected_image.id);
+                        is_state_changed = true;
+                    } else if (selected_image === null && current_image_selection !== null && !this.isMoving) {
+                        this.imageLayers[this.selectedLayer].resetImageSelection();
+                        is_state_changed = true;
+                    } else if (selected_image !== null && current_image_selection !== null && selected_image.id !== current_image_selection.id && !this.isMoving) {
+                        this.imageLayers[this.selectedLayer].resetImageSelection();
+                        is_state_changed = true;
+                    }
                 }
-
                 this.isDragging = false;
                 this.isResizing = false;
-                this.resizeCorner = null;
                 this.draggedImage = null;
                 this.draggingGridLine = null;
                 this.draggingGridAnchor = false;
@@ -685,33 +516,11 @@ export default {
                 this.isResizingViewport = false;
                 this.viewportResizeCorner = null;
                 this.isPanning = false;
-                this.canvas.style.cursor = 'grab';
-
-                if (stateChanged) {
-                    this.broadcastImageUpdate();
-                }
-                const selected_image = this.checkImageSelection(click_position);
-                if (selected_image !== null && !this.isMoving) {
-                    this.selectedImageId = selected_image;
+                if (is_state_changed) {
                     this.renderCanvas();
+                    this.broadcastFullUpdate();
                 }
             }
-        },
-
-        checkImageSelection(click_position) {
-            // Check if an image is selected at the given click position and return the image id.
-            let image_id = null;
-            const images = this.layerImages[this.selectedLayer];
-            if (images) {
-                for (let i = images.length - 1; i >= 0; i--) {
-                    const img = images[i];
-                    if (this.isClickInImage(click_position, img)) {
-                        image_id = i;
-                        break
-                    }
-                }
-            }
-            return image_id;
         },
 
         handleKeyDown(event) {
@@ -731,11 +540,11 @@ export default {
         },
 
         handleDeleteKey() {
-            if (this.selectedImageId !== null) {
-                this.layerImages[this.selectedLayer].splice(this.selectedImageId, 1);
+            let is_deleted = this.imageLayers[this.selectedLayer].removeSelectedImage();
+            if (is_deleted) {
                 this.draggedImage = null;
                 this.renderCanvas();
-                this.broadcastImageUpdate();
+                this.broadcastFullUpdate();
             }
         },
 
@@ -767,22 +576,19 @@ export default {
             this.renderCanvas();
         },
 
-        togglePlayerViewport() {
-            this.isPlayerViewportEnabled = !this.isPlayerViewportEnabled;
-            this.renderCanvas();
-            if (this.isPlayerViewportEnabled) {
-                this.broadcastFullUpdate();
-            }
-        },
-
         toggleMagnet() {
             this.isMagnetEnabled = !this.isMagnetEnabled;
+        },
+
+        toggleFog() {
+          this.isFogEnabled = !this.isFogEnabled;
+          this.fogLayer.setFogVisibility(this.isFogEnabled);
+          this.broadcastFullUpdate();
         },
 
         openPlayerView() {
             const url = window.location.origin + window.location.pathname + '?mode=player';
             window.open(url, '_blank');
-            this.broadcastImageUpdate();
         },
 
         eraseLastFogDrawing() {
@@ -805,20 +611,20 @@ export default {
             })
         },
 
+        broadcastUpdateRequest(){
+            this.broadcastChannel.postMessage({
+                type: 'request-update',
+            });
+        },
+
         broadcastFullUpdate() {
+            // console.log("broadcast update !");
             if (this.isPlayerView || !this.broadcastChannel) return;
 
             // Convert images to serializable format
             const serializableImages = {};
-            for (const layer in this.layerImages) {
-                serializableImages[layer] = this.layerImages[layer].map(img => ({
-                    src: img.img.src,
-                    x: img.x,
-                    y: img.y,
-                    width: img.width,
-                    height: img.height,
-                    layer: img.layer
-                }));
+            for (const layer in this.imageLayers) {
+                serializableImages[layer] = this.imageLayers[layer].getJson();
             }
 
             this.broadcastChannel.postMessage({
@@ -835,51 +641,6 @@ export default {
                     playerViewportY: this.playerViewportY,
                     playerViewportWidth: this.playerViewportWidth,
                     playerViewportHeight: this.playerViewportHeight,
-                    isPlayerViewportEnabled: this.isPlayerViewportEnabled,
-                    fogLayer: this.fogLayer.getJson()
-                }
-            });
-        },
-
-        broadcastImageUpdate() {
-            if (this.isPlayerView || !this.broadcastChannel) return;
-
-            // Convert images to serializable format
-            const serializableImages = {};
-            for (const layer in this.layerImages) {
-                serializableImages[layer] = this.layerImages[layer].map(img => ({
-                    src: img.img.src,
-                    x: img.x,
-                    y: img.y,
-                    width: img.width,
-                    height: img.height,
-                    layer: img.layer
-                }));
-            }
-
-            this.broadcastChannel.postMessage({
-                type: 'image-update',
-                state: {
-                    layerImages: serializableImages,
-                    gridCellSize: this.gridCellSize,
-                    isGridEnabled: this.isGridEnabled,
-                    gridOffsetX: this.gridOffsetX,
-                    gridOffsetY: this.gridOffsetY,
-                    gridAnchorCol: this.gridAnchorCol,
-                    gridAnchorRow: this.gridAnchorRow,
-                    playerViewportX: this.playerViewportX,
-                    playerViewportY: this.playerViewportY,
-                    playerViewportWidth: this.playerViewportWidth,
-                    playerViewportHeight: this.playerViewportHeight,
-                    isPlayerViewportEnabled: this.isPlayerViewportEnabled,
-                }
-            });
-        },
-
-        broadcastFogUpdate() {
-            this.broadcastChannel.postMessage({
-                type: 'fog-update',
-                state: {
                     fogLayer: this.fogLayer.getJson()
                 }
             });
@@ -891,18 +652,9 @@ export default {
 
                 // Update images - reconstruct Image objects
                 for (const layer in state.layerImages) {
-                    this.layerImages[layer] = state.layerImages[layer].map(imgData => {
-                        const img = new Image();
-                        img.src = imgData.src;
-                        return {
-                            img: img,
-                            x: imgData.x,
-                            y: imgData.y,
-                            width: imgData.width,
-                            height: imgData.height,
-                            layer: imgData.layer
-                        };
-                    });
+                    if (layer in this.imageLayers) {
+                        this.imageLayers[layer].loadJson(state.layerImages[layer]);
+                    }
                 }
 
                 // Update grid settings
@@ -934,68 +686,111 @@ export default {
                 this.playerViewportWidth = data.state.canvasWidth / this.zoomLevel;
                 this.playerViewportHeight = data.state.canvasHeight / this.zoomLevel;
             }
+            if (data.type === 'request-update') {
+                this.broadcastFullUpdate();
+            }
             this.renderCanvas();
         },
 
+        /*
+        Table file is a json file with the following format:
+        {
+        "name": "",
+        "version": "1",
+        "savedAt": "2025-11-15T10:52:59.734Z",
+        "grid": {},
+        "view": {
+            "zoomLevel": 0.49774952626127594,
+            "canvasOffsetX": 280.0828334636053,
+            "canvasOffsetY": 231.09193394519312
+        },
+        "viewport": {
+            "x": -155,
+            "y": -316,
+            "width": 460,
+            "height": 460
+        },
+        "image_layers": {
+            "Map": [
+            {
+                "src": "images/Map/img.png",
+                "x": 0,
+                "y": 0,
+                "width": 0,
+                "height": 0
+            }
+            ],
+            "Token": [],
+            "GM": []
+        },
+        "fog_layer": {
+            "isFogEnabled": false,
+            "fogPolygons": []
+        }
+        }
+        */
         async saveTable() {
             this.isLoading = true;
-            const zip = new JSZip();
+            try {
+                const zip = new JSZip();
 
-            const mapData = {
-                name: "",
-                version: "1",
-                savedAt: new Date().toISOString(),
-                grid: {
-                    cellSize: this.gridCellSize,
-                    isGridEnabled: this.isGridEnabled,
-                    offsetX: this.gridOffsetX,
-                    offsetY: this.gridOffsetY,
-                    anchorCol: this.gridAnchorCol,
-                    anchorRow: this.gridAnchorRow
-                },
-                view: {
-                    zoomLevel: this.zoomLevel,
-                    canvasOffsetX: this.canvasOffsetX,
-                    canvasOffsetY: this.canvasOffsetY
-                },
-                viewport: {
-                    x: this.playerViewportX,
-                    y: this.playerViewportY,
-                    width: this.playerViewportWidth,
-                    height: this.playerViewportHeight,
-                    isPlayerViewportEnabled: this.isPlayerViewportEnabled
-                },
-                image_layers: {},
-                fog_layer: this.fogLayer.getJson()
-            };
-            for (const layer in this.layerImages) {
-                mapData.image_layers[layer] = [];
-                for (let img_index = 0; img_index < this.layerImages[layer].length; img_index++) {
-                    const img = this.layerImages[layer][img_index];
-                    const dst_img_path = `images/${layer}/img_${img_index}.png`;
-                    mapData.image_layers[layer].push({
-                        src: dst_img_path,
-                        x: img.x,
-                        y: img.y,
-                        width: img.width,
-                        height: img.height
-                    });
-                    const dataURL = img.img.src;
-                    const base64Data = dataURL.split(',')[1];
-                    const imageData = atob(base64Data);
-                    const byteArray = new Uint8Array(imageData.length);
-                    for (let j = 0; j < imageData.length; j++) {
-                        byteArray[j] = imageData.charCodeAt(j);
+                const mapData = {
+                    name: "",
+                    version: "1",
+                    savedAt: new Date().toISOString(),
+                    grid: {
+                        cellSize: this.gridCellSize,
+                        isGridEnabled: this.isGridEnabled,
+                        offsetX: this.gridOffsetX,
+                        offsetY: this.gridOffsetY,
+                        anchorCol: this.gridAnchorCol,
+                        anchorRow: this.gridAnchorRow
+                    },
+                    view: {
+                        zoomLevel: this.zoomLevel,
+                        canvasOffsetX: this.canvasOffsetX,
+                        canvasOffsetY: this.canvasOffsetY
+                    },
+                    viewport: {
+                        x: this.playerViewportX,
+                        y: this.playerViewportY,
+                        width: this.playerViewportWidth,
+                        height: this.playerViewportHeight,
+                    },
+                    image_layers: {},
+                    fog_layer: this.fogLayer.getJson()
+                };
+                for (const layer in this.imageLayers) {
+                    mapData.image_layers[layer] = [];
+                    for (let img_index = 0; img_index < this.imageLayers[layer].images.length; img_index++) {
+                        const img = this.imageLayers[layer].images[img_index];
+                        const dst_img_path = `images/${layer}/img_${img_index}.png`;
+                        mapData.image_layers[layer].push({
+                            src: dst_img_path,
+                            x: img.x,
+                            y: img.y,
+                            width: img.width,
+                            height: img.height
+                        });
+                        const dataURL = img.img.src;
+                        const base64Data = dataURL.split(',')[1];
+                        const imageData = atob(base64Data);
+                        const byteArray = new Uint8Array(imageData.length);
+                        for (let j = 0; j < imageData.length; j++) {
+                            byteArray[j] = imageData.charCodeAt(j);
+                        }
+                        zip.file(dst_img_path, byteArray, {binary: true});
                     }
-                    zip.file(dst_img_path, byteArray, {binary: true});
                 }
+                zip.file('map_data.json', JSON.stringify(mapData));
+                const save_file = await zip.generateAsync({type: "blob"})
+                saveAs(save_file, "new_table.dtable");
+                this.isLoading = false;
+            } catch (error) {
+                console.error("An error occured while saving Table :", error);
+                this.isLoading = false;
             }
-            zip.file('map_data.json', JSON.stringify(mapData));
-            const save_file = await zip.generateAsync({type: "blob"})
-            saveAs(save_file, "new_table.dtable");
-            this.isLoading = false;
         },
-
 
         async loadTableFile(ziparchive) {
             try {
@@ -1025,43 +820,14 @@ export default {
                 this.playerViewportY = data.viewport.y;
                 this.playerViewportWidth = data.viewport.width;
                 this.playerViewportHeight = data.viewport.height;
-                this.isPlayerViewportEnabled = data.viewport.isPlayerViewportEnabled;
-                this.layerImages = {};
 
                 // Load fog layer
                 this.fogLayer.loadJson(data.fog_layer)
 
                 // Load all images
-                for (const [layer, layerContent] of Object.entries(data.image_layers)) {
-                    this.layerImages[layer] = [];
-                    for (const image of layerContent) {
-                        const imageFile = ziparchive.file(image.src);
-                        if (!imageFile) {
-                            console.warn(`The following file could not be loaded : ${image.src}`);
-                            continue;
-                        }
-                        const imageData = await imageFile.async('uint8array');
-                        const blob = new Blob([imageData], {type: 'image/png'});
-                        const reader = new FileReader();
-                        await new Promise((resolve) => {
-                            reader.onload = (e) => {
-                                const img = new Image();
-                                img.onload = () => {
-                                    const imageObject = {
-                                        img: img,
-                                        x: image.x,
-                                        y: image.y,
-                                        width: image.width,
-                                        height: image.height,
-                                        layer: layer,
-                                    };
-                                    this.layerImages[layer].push(imageObject);
-                                    resolve();
-                                };
-                                img.src = e.target.result;
-                            };
-                            reader.readAsDataURL(blob);
-                        });
+                for (const [layer_name, layer_image_list] of Object.entries(data.image_layers)) {
+                    if (layer_name in this.imageLayers) {
+                        await this.imageLayers[layer_name].loadJsonWithFiles(layer_image_list, ziparchive);
                     }
                 }
                 this.renderCanvas();
