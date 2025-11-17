@@ -49,8 +49,8 @@ It’s **lightweight, portable, and focused on essential features**—no unneces
 
 ## 🐛💬 Bugs & Support
 
-- **Bug**: You can report a bug by creating an issue with label "bug" [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
-- **New feature proposal**: You can submit a proposal for a new feature by creating an issue with label "enhancement" [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
+- **Bug**: You can report a bug by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
+- **New feature proposal**: You can submit a proposal for a new feature by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
 
 ---
 
@@ -60,20 +60,18 @@ Feel free to use, modify, and share!
 
 ---
 
-## 🙏 Special Thanks
-- [LibGDX](https://libgdx.com/) (for cross-platform support).
-- [All contributors](https://github.com/yourusername/local-vtt/graphs/contributors) who helped shape this project.
+## 💻 Development Setup
 
----
-*"Less setup, more storytelling."*
-# Dungeon Table
-
-Dungeon Table is a super efficient virtual table-top software optimized for in-person and local role playing games around a table. It is meant to be intuitive, fast and beautiful.
-
-## Project Setup
+### Install everything
 
 ```sh
 npm install
+```
+
+### Start app in dev mode
+
+```sh
+npm run electron:dev
 ```
 
 ### Start app for development
@@ -82,8 +80,8 @@ npm install
 npm run electron:dev
 ```
 
-### Type-Check, Compile and Minify for Production
+### Build app to electron package
 
 ```sh
-npm run build
+npm run electron:build
 ```
