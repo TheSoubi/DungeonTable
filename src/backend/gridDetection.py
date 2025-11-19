@@ -2,50 +2,64 @@ import argparse
 import numpy as np
 import matplotlib.pyplot as plt
 from PIL import Image
-from scipy.signal import find_peaks
-from scipy.signal import fftconvolve
+from scipy.signal import find_peaks, windows, fftconvolve
+from scipy.ndimage import maximum_filter1d
+from scipy.cluster.hierarchy import linkage, fcluster
 import cv2
 
 
-def get_FFT_projection(image: np.ndarray):
-
-    fft2 = np.fft.fft2(image)
+def get_FFT_projection(image: np.ndarray, padding_size=4096, window=False):
+    
+    img_size_x, img_size_y = image.shape
+    max_size_x = max(img_size_x, padding_size)
+    max_size_y = max(img_size_y, padding_size)
+    padded = np.zeros((max_size_x, max_size_y))
+    padded[:image.shape[0], :image.shape[1]] = image
+    fft2 = np.fft.fft2(padded)
     fft2_shifted = np.fft.fftshift(fft2)
 
     fft_x = fft2_shifted[fft2_shifted.shape[0]//2, :]
     N_x = fft_x.shape[0]
+    if window:
+        fft_x = fft_x * windows.hann(N_x)
     freq_x = np.fft.fftshift(np.fft.fftfreq(N_x))
-    amplitude_x = 20 * np.log(np.abs(fft_x))
+    amplitude_x = 20 * np.log(np.abs(fft_x) + 1e-8)
 
     fft_y = np.array([x[fft2_shifted.shape[1]//2] for x in fft2_shifted])
     N_y = fft_y.shape[0]
+    if window:
+        fft_y = fft_y * windows.hann(N_y)
     freq_y = np.fft.fftshift(np.fft.fftfreq(N_y))
-    amplitude_y = 20 * np.log(np.abs(fft_y))
+    amplitude_y = 20 * np.log(np.abs(fft_y) + 1e-8)
 
     return freq_x, amplitude_x, freq_y, amplitude_y
 
+def get_FFT_peaks(fft_signal: np.ndarray, frequencies: np.ndarray):
+    filter = maximum_filter1d(fft_signal, size=101, mode="reflect")
+
+    peaks, _ = find_peaks(fft_signal, prominence=50, width=(0, 50))
+    peaks = np.intersect1d(np.where(fft_signal == filter)[0], peaks)
+
+    peak_freq = np.array(frequencies[peaks])
+    diff_between = 1/np.diff(peak_freq)
+
+    Z = linkage(diff_between.reshape(-1,1), method="single")
+    clusters = fcluster(Z, t=1.0, criterion='distance')
+    groups = {}
+    for v,c in zip(diff_between, clusters):
+        groups.setdefault(c, []).append(v)
+    mean = np.mean(max(groups.values(), key=len))
+
+    return round(mean), peaks
+
 def get_tile_size(image: np.ndarray, trace:bool = False):
     freq_x, amplitude_x, freq_y, amplitude_y = get_FFT_projection(image=image)
-    peaks_x, _ = find_peaks(amplitude_x, prominence=50)
-    peaks_y, _ = find_peaks(amplitude_y, prominence=50)
 
-    peak_freq_x = freq_x[peaks_x][freq_x[peaks_x] > 0]
-    peak_freq_y = freq_y[peaks_y][freq_y[peaks_y] > 0]
+    mean_x, peaks_x = get_FFT_peaks(amplitude_x, frequencies=freq_x)
+    mean_y, peaks_y = get_FFT_peaks(amplitude_y, frequencies=freq_y)
 
-    if len(peak_freq_x) > 0:
-        fx_min = np.min(peak_freq_x)
-        tile_x = round(1 / abs(fx_min)) if fx_min != 0 else 0
-    else:
-        tile_x = 0
-
-    if len(peak_freq_y) > 0:
-        fy_min = np.min(peak_freq_y)
-        tile_y = round(1 / abs(fy_min)) if fy_min != 0 else 0
-    else:
-        tile_y = 0
-    
     if trace:
-        print(f"X: {tile_x}, Y: {tile_y}")
+        print(f"X: {mean_x}, Y: {mean_y}")
         plt.subplot(121)
         plt.plot(freq_x, amplitude_x, label='FFT 1D X axis')
         plt.scatter(freq_x[peaks_x], amplitude_x[peaks_x], color='orange')
@@ -62,9 +76,10 @@ def get_tile_size(image: np.ndarray, trace:bool = False):
         plt.grid(True)
         plt.show()
 
-    return tile_x, tile_y
+    return mean_x, mean_y
 
 def get_grid_1d_offset(tile: int, projection: np.ndarray, trace: bool = False):
+    
     line_width = 2
 
     template = np.ones(tile, dtype=np.float32)
@@ -111,7 +126,7 @@ def get_grid_1d_offset(tile: int, projection: np.ndarray, trace: bool = False):
         plt.legend()
         plt.grid(True)
         plt.show()
-    print(offset)
+
     return int(offset)
 
 def get_grid_offset(image: np.ndarray, tile_x: int, tile_y: int, trace: bool = False):
@@ -124,23 +139,19 @@ def get_grid_offset(image: np.ndarray, tile_x: int, tile_y: int, trace: bool = F
 
     return offset_x, offset_y
 
-def get_grid(image_path: str, trace: bool = False):
-    image = Image.open(image_path).convert('L') # Grayscale
-    image = np.array(image)
-    gx = cv2.Sobel(image, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(image, cv2.CV_32F, 0, 1, ksize=3)
-    gradient = np.sqrt(gx**2 + gy**2)
+def get_grid(image_np: np.ndarray, trace: bool = False):
+    gray = cv2.cvtColor(image_np, cv2.COLOR_RGB2GRAY)
+    gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+    gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+    gradient = cv2.magnitude(gx, gy)
+    gradient = cv2.normalize(gradient, gradient, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
     if trace:
         plt.imshow(gradient, cmap='gray')
         plt.show()
 
     tile_x, tile_y = get_tile_size(image=gradient, trace=trace)
-    offset_x, offset_y = get_grid_offset(image=image, tile_x=tile_x, tile_y=tile_y, trace=trace)
-    # edges = cv2.Canny(image, 50, 150)
-    # edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, np.ones((5,5), np.uint8))
-    # gauss = cv2.GaussianBlur(image, (3,3), 0)
-
+    offset_x, offset_y = get_grid_offset(image=gray, tile_x=tile_x, tile_y=tile_y, trace=trace)
 
     return offset_x, tile_x, offset_y, tile_y
 
@@ -150,13 +161,14 @@ if __name__ == '__main__':
     parser.add_argument("image_path", help="image to show")
     args = parser.parse_args()
 
-    offset_x, tile_x, offset_y, tile_y = get_grid(args.image_path, trace=True)
+    image = Image.open(args.image_path)
+    image = np.array(image)
+    offset_x, tile_x, offset_y, tile_y = get_grid(image, trace=True)
 
     plt.figure(figsize=(8,8))
-    image = Image.open(args.image_path).convert('L')
-    image = np.array(image)
+
     plt.imshow(image, cmap='gray')
-    rows, cols = image.shape
+    rows, cols = image.shape[0:2]
     for y in range(offset_y, rows, tile_y):
         plt.axhline(y=y, color='red', linewidth=1, alpha=0.8)
     for x in range(offset_x, cols, tile_x):
