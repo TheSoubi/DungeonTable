@@ -352,6 +352,7 @@ export default {
                 this.isLoading = true;
                 try {
                     await this.imageLayers[this.selectedLayer].processSelectedImage(grid_cell_size);
+                    this.saveCurrentStateToHistory();
                 }
                 catch (error) {
                     console.log(error);
@@ -560,6 +561,7 @@ export default {
             let is_deleted = this.imageLayers[this.selectedLayer].removeSelectedImage();
             if (is_deleted) {
                 this.draggedImage = null;
+                this.saveCurrentStateToHistory();
                 this.renderCanvas();
                 this.broadcastFullUpdate();
             }
@@ -910,6 +912,5 @@ export default {
                 this.broadcastFullUpdate();
             }
         }
-
     }
 };

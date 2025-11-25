@@ -5,10 +5,6 @@ export default class ImageLayer {
         this.selectedImageId = null;
         this.resizeCorner = null;
         this.gmFlagImg = null;
-        if (this.name === "GM") {
-            this.gmFlagImg = new Image();
-            this.gmFlagImg.src = '/images/GM_layer_flag.svg';
-        }
         this.serverUrl = "http://localhost/api/";
     }
 
@@ -259,7 +255,14 @@ export default class ImageLayer {
                 imageObj.height
             );
             if (this.name === "GM") {
-                ctx.drawImage(this.gmFlagImg, imageObj.x - 10, imageObj.y - 10, 25, 25);
+                ctx.strokeStyle = '#ff0000';
+                ctx.lineWidth = 2 / zoomLevel;
+                ctx.strokeRect(
+                    imageObj.x,
+                    imageObj.y,
+                    imageObj.width,
+                    imageObj.height
+                );
             }
             if (this.selectedImageId === image_index) {
                 ctx.strokeStyle = '#00a100';

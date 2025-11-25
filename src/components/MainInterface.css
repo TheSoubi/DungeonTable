@@ -236,6 +236,7 @@ input[type="radio"] {
   border: none;
   border-radius: 6px;
   transition: background 0.3s;
+  margin-top: 5px;
 }
 
 .small-btn:hover {
