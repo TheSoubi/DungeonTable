@@ -10,6 +10,10 @@ export default class GridLayer {
         this.draggingGridAnchor = false
     }
 
+    setGridVisibility(isEnabled) {
+        this.isGridEnabled = isEnabled;
+    }
+
     drawOnCanvas(canvas, canvasOffsetX, canvasOffsetY, canvasWidth, canvasHeight, zoomLevel) {
         if (this.isGridEnabled){
             const ctx = canvas.getContext('2d');

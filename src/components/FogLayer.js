@@ -16,6 +16,9 @@ export default class FogLayer {
         this.isFogEnabled = isEnabled;
     }
 
+    /*
+    Handles a mouse_up event at the given coordinates. Return true if a new polygon was drawn, false instead.
+    */
     handleMouseUp(x, y) {
         try {
             if (this.isFogEnabled) {
@@ -26,7 +29,7 @@ export default class FogLayer {
                     if (this.isFirstFogPolygonPointSelected(x, y)) {
                         if (this.currentFogPolygon.length >= 4) {
                             this.saveCurrentFogPolygon();
-                            this.updateCallback();
+                            return true;
                         }
                     }
                     else {
@@ -34,6 +37,7 @@ export default class FogLayer {
                     }
                 }
             }
+            return false;
         } catch (error) {
             console.error(error);
         }

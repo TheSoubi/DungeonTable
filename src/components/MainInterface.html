@@ -7,7 +7,6 @@
         @mouseup="handleMouseUp"
         @mouseleave="handleMouseUp"
         @wheel="handleWheel"
-        @keydown="handleKeyDown"
         tabindex="0"
         class="fullscreen-canvas"
         :class="{ 'player-canvas': isPlayerView }"
@@ -46,7 +45,7 @@
                     <div class="tool-controls">
                         <label>
                             Show Grid
-                            <input type="checkbox" v-model="gridLayer.isGridEnabled" @change="renderCanvas" />
+                            <input type="checkbox" v-model="isGridEnabled" @click="toggleGrid()" />
                         </label>
                     </div>
                 </div>
