@@ -1,33 +1,33 @@
 <div class="game-container">
-    <canvas 
-        v-if="game"
-        ref="canvas" 
+    <canvas
+        :class="{ 'player-canvas': isPlayerView }"
         @mousedown="handleMouseDown"
+        @mouseleave="handleMouseUp"
         @mousemove="handleMouseMove"
         @mouseup="handleMouseUp"
-        @mouseleave="handleMouseUp"
         @wheel="handleWheel"
-        tabindex="0"
         class="fullscreen-canvas"
-        :class="{ 'player-canvas': isPlayerView }"
+        ref="canvas"
+        tabindex="0"
+        v-if="game"
     ></canvas>
 
-    <div v-if="!isPlayerView" class="toolbox" :class="{ minimized: isToolboxMinimized }">
+    <div :class="{ minimized: isToolboxMinimized }" class="toolbox" v-if="!isPlayerView">
         <div class="toolbox-header">
             <h2>Dungeon Table</h2>
             <button @click="isToolboxMinimized = !isToolboxMinimized" class="minimize-btn">
                 {{ isToolboxMinimized ? '+' : '-' }}
             </button>
         </div>
-        
-        <div v-if="!isToolboxMinimized" class="toolbox-content">
+
+        <div class="toolbox-content" v-if="!isToolboxMinimized">
 
             <!-- TABLE SECTION -->
             <div class="section">
                 <div style="display: flex; gap: 10px;">
-                    <button class="main-button" @click="$refs.zipInput.click()" >Open Table</button>
-                    <input type="file" ref="zipInput" accept=".dtable" @change="loadTable" style="display: none"/>
-                    <button class="main-button" @click="saveTable(map)" >Save Table</button>
+                    <button @click="$refs.zipInput.click()" class="main-button">Open Table</button>
+                    <input @change="loadTable" accept=".dtable" ref="zipInput" style="display: none" type="file"/>
+                    <button @click="saveTable(map)" class="main-button">Save Table</button>
                 </div>
             </div>
 
@@ -35,55 +35,88 @@
             <div class="section">
                 <h3>Layers</h3>
                 <div class="layer-buttons">
-                    <div v-for="layer in editable_layers" :key="layer">
-                        <button class=layer-button :class="{ active: selectedLayer === layer }" @click="selectLayer(layer)">{{ layer }}</button>
-                    </div>
+                    <button :class="{ active: selectedLayer === 'Map' }" @click="selectLayer('Map')" class=layer-button>
+                        <img alt="Map" src="/src/assets/icons/Map.svg" style="width:50px">
+                        <span class="tooltiptext">Edit 'Map' Layer</span>
+                    </button>
+                    <button :class="{ active: selectedLayer === 'Grid' }" @click="selectLayer('Grid')"
+                            class=layer-button>
+                        <img alt="Grid" src="/src/assets/icons/Grid.svg" style="width:50px">
+                        <span class="tooltiptext">Edit 'Grid' Layer</span>
+                    </button>
+                    <button :class="{ active: selectedLayer === 'Token' }" @click="selectLayer('Token')"
+                            class=layer-button>
+                        <img alt="Token" src="/src/assets/icons/Token.svg" style="width:50px">
+                        <span class="tooltiptext">Edit 'Token' Layer</span>
+                    </button>
+                    <button :class="{ active: selectedLayer === 'Fog' }" @click="selectLayer('Fog')" class=layer-button>
+                        <img alt="Fog" src="/src/assets/icons/Fog.svg" style="width:50px">
+                        <span class="tooltiptext">Edit 'Fog' Layer</span>
+                    </button>
+                    <button :class="{ active: selectedLayer === 'GM' }" @click="selectLayer('GM')" class=layer-button>
+                        <img alt="GM" src="/src/assets/icons/GM.svg" style="width:50px">
+                        <span class="tooltiptext">Edit 'GM' Layer</span>
+                    </button>
                 </div>
 
-                <div v-if="selectedLayer === 'Grid'" class="sub-section">
+                <div class="sub-section" v-if="selectedLayer === 'Grid'">
                     <h3>Grid Controls</h3>
                     <div class="tool-controls">
-                        <label>
-                            Show Grid
-                            <input type="checkbox" v-model="isGridEnabled" @click="toggleGrid()" />
-                        </label>
+                        <button :class="{ active: isGridEnabled }" @click="toggleGrid()" class=button-medium-toggle>
+                            <img v-if="isGridEnabled" alt="Enabled Grid" src="/src/assets/icons/grid_enabled.svg" class=button-icon-medium>
+                            <img v-if="!isGridEnabled" alt="Disabled Grid" src="/src/assets/icons/grid_disabled.svg" class=button-icon-medium>
+                            <span class="tooltiptext">Enable/Disable Grid</span>
+                        </button>
                     </div>
                 </div>
-                <div v-else-if="selectedLayer === 'Fog'" class="sub-section">
+                <div class="sub-section" v-else-if="selectedLayer === 'Fog'">
                     <h3>Draw Fog</h3>
+                    <p class="help-text">Start by enabling fog, then draw a polygon using mouse.</p>
                     <div class="tool-controls">
-                        <label>
-                            Enable Fog
-                            <input type="checkbox" v-model="isFogEnabled" @click="toggleFog()" />
-                        </label>
-                        <button class="small-btn" :class="{ inactive: !isMagnetEnabled }" @click="toggleMagnet()">Magnet</button>
-                        <button class="small-btn" @click="eraseLastFogDrawing()">Erase last drawing</button>
-                        <button class="small-btn" @click="eraseAllFogDrawings()">Erase all drawings</button>
+                        <button :class="{ active: isFogEnabled }" @click="toggleFog()" class=button-medium-toggle>
+                            <img v-if="isFogEnabled" alt="Enabled Fog" src="/src/assets/icons/fog_enabled.svg" class=button-icon-medium>
+                            <img v-if="!isFogEnabled" alt="Disabled Fog" src="/src/assets/icons/fog_disabled.svg" class=button-icon-medium>
+                            <span class="tooltiptext">Enable/Disable Fog</span>
+                        </button>
+                        <button :class="{ active: isMagnetEnabled }" @click="toggleMagnet()" class=button-medium-toggle>
+                            <img v-if="isMagnetEnabled" alt="Enabled Fog" src="/src/assets/icons/grid_snap_enabled.svg" class=button-icon-medium>
+                            <img v-if="!isMagnetEnabled" alt="Disabled Fog" src="/src/assets/icons/grid_snap_disabled.svg" class=button-icon-medium>
+                            <span class="tooltiptext">Enable/Disable Snap to Grid</span>
+                        </button>
+                        <button @click="eraseLastFogDrawing()" class=button-medium>
+                            <img alt="Erase Last Drawings" src="/src/assets/icons/fog_erase_last.svg" class=button-icon-medium>
+                            <span class="tooltiptext">Erase Last Drawing</span>
+                        </button>
+                        <button @click="eraseAllFogDrawings()" class=button-medium>
+                            <img alt="Erase All Drawings" src="/src/assets/icons/fog_erase_all.svg" class=button-icon-medium>
+                            <span class="tooltiptext">Erase All Drawings</span>
+                        </button>
                     </div>
-                    <p class="help-text">Draw a polygon to add fog.</p>
                 </div>
-                <div v-else class="sub-section">
+                <div class="sub-section" v-else>
                     <h3>Add Image to {{ selectedLayer }} Layer</h3>
-                    <input type="file" @change="handleImageUpload" accept="image/*" ref="fileInput" />
-                    <button v-if="selectedLayer === 'Map'" class="small-btn" @click="processSelectedImage()">Auto Rescale Map</button>
+                    <input @change="handleImageUpload" accept="image/*" ref="fileInput" type="file"/>
+                    <button @click="processSelectedImage()" class="small-btn" v-if="selectedLayer === 'Map'">
+                        Auto Rescale Map
+                    </button>
                 </div>
             </div>
-            
+
             <div class="section">
                 <h3>Player View</h3>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; flex-direction: row;">
-                    <button class="main-button" @click="openPlayerView">Open Player's Window</button>
-                    <button class="main-button" @click="broadcastFullUpdate()">Force refresh</button>
+                    <button @click="openPlayerView" class="main-button">Open Player's Window</button>
+                    <button @click="broadcastFullUpdate()" class="main-button">Force refresh</button>
                 </div>
             </div>
         </div>
     </div>
 
     <!-- Loader -->
-    <div v-if="isLoading" class="overlay">
-      <div class="loader">
-        <div class="spinner"></div>
-        <p>Loading...</p>
-      </div>
+    <div class="overlay" v-if="isLoading">
+        <div class="loader">
+            <div class="spinner"></div>
+            <p>Loading...</p>
+        </div>
     </div>
 </div>

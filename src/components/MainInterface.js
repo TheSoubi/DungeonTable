@@ -860,6 +860,7 @@ export default {
 
                 // Load fog layer
                 this.fogLayer.loadJson(data.fog_layer)
+                this.isFogEnabled = data.fog_layer.isFogEnabled;
 
                 // Load all images
                 for (const [layer_name, layer_image_list] of Object.entries(data.image_layers)) {
