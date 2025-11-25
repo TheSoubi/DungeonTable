@@ -29,6 +29,8 @@ coverage
 
 *.tsbuildinfo
 dist_electron
+build
 
 # Python Backend
 .venv
+dist_backend

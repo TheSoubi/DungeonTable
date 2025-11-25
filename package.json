@@ -5,6 +5,7 @@
   "type": "module",
   "main": "main.js",
   "author": "Soubi <soubi@dungeontable.com>",
+  "description": "A simple, intuitive Virtual Table Top for local tabletop RPG sessions.",
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
   },
@@ -15,12 +16,14 @@
     "build-only": "vite build",
     "type-check": "vue-tsc --build",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
+    "electron:build": "./build_electron_app.sh",
     "electron:start": "electron ."
   },
   "dependencies": {
     "@turf/turf": "^7.2.0",
+    "electron-log": "^5.4.3",
     "file-saver": "^2.0.5",
+    "get-port": "^7.1.0",
     "jszip": "^3.10.1",
     "lodash.debounce": "^4.0.8",
     "path-browserify": "^1.0.1",
@@ -50,15 +53,26 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "./public/icon_256x256.png"
+      "icon": "./public/icon_256x256.png",
+      "extraFiles": [
+        {
+          "from": "dist_backend/backend_server.exe",
+          "to": "resources/bin/backend_server.exe"
+        }
+      ]
     },
     "linux": {
       "target": [
-        "AppImage",
-        "deb"
+        "AppImage"
       ],
       "category": "Game",
-      "icon": "./public/icon_256x256.png"
+      "icon": "./public/icon_256x256.png",
+      "extraFiles": [
+        {
+          "from": "dist_backend/backend_server",
+          "to": "resources/bin/backend_server"
+        }
+      ]
     },
     "directories": {
       "output": "dist_electron"

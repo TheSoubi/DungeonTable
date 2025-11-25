@@ -57,7 +57,6 @@ export default {
     created() {
         this.createGame();
         window.addEventListener('resize', debounce(this.handleWindowResize, 100));
-
         // Check if this is player view
         const urlParams = new URLSearchParams(window.location.search);
         this.isPlayerView = urlParams.get('mode') === 'player';
@@ -341,7 +340,14 @@ export default {
         async processSelectedImage() {
             if (this.selectedLayer in this.imageLayers) {
                 const grid_cell_size = this.gridLayer.get_grid_cell_size()
-                await this.imageLayers[this.selectedLayer].processSelectedImage(grid_cell_size);
+                this.isLoading = true;
+                try {
+                    await this.imageLayers[this.selectedLayer].processSelectedImage(grid_cell_size);
+                }
+                catch (error) {
+                    console.log(error);
+                }
+                this.isLoading = false;
                 this.renderCanvas();
             }
         },

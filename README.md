@@ -3,7 +3,7 @@
 **A simple, intuitive Virtual Table Top for local tabletop RPG sessions.**
 No bullshit features, no complex setup. Just plug in a screen, launch, and play.
 
-![demo_picture](./git_resources/demo_picture.jpg)
+![demo_picture](./github_resources/demo_picture.jpg)
 
 ---
 
@@ -80,7 +80,9 @@ npm run electron:dev
 npm run electron:dev
 ```
 
-### Build app to electron package
+### Build backend and app to electron package
+
+Python's backend server will be packaged to an executable.
 
 ```sh
 npm run electron:build

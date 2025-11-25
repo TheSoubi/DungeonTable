@@ -1,12 +1,31 @@
-import {app, BrowserWindow} from 'electron';
+import {app, BrowserWindow, session} from 'electron';
+import log from 'electron-log';
 import path from 'path';
 import {fileURLToPath} from 'url';
+import {exec} from 'child_process';
+import os from 'os';
+import getPort from 'get-port';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+const backendPort = await getPort();
 
 let mainWindow;
 let secondaryWindow;
+
+let startBackendCmd = null;
+if (os.platform() === 'win32' && isDev === false) {
+    startBackendCmd = path.join(process.resourcesPath, 'bin', 'backend_server.exe') + " " + backendPort;
+    log.info("Windows-packaged backend server is starting on port", backendPort);
+}
+else if (os.platform() === 'linux' && isDev === false) {
+    startBackendCmd = path.join(process.resourcesPath, 'bin', 'backend_server') + " " + backendPort;
+    log.info("Linux-packaged backend server is starting on port", backendPort);
+}
+else if (os.platform() === 'linux' && isDev === true) {
+    log.info(`NO BACKEND IS STARTED IN DEV MODE. START MANUALLY WITH 'python src/backend/backend_server.py ${backendPort}'`)
+}
 
 function createMainWindow() {
     mainWindow = new BrowserWindow({
@@ -21,19 +40,17 @@ function createMainWindow() {
     });
     mainWindow.setMenuBarVisibility(false)
 
-    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     if (isDev) {
         mainWindow.loadURL('http://localhost:5173');
         mainWindow.webContents.openDevTools();
     } else {
         mainWindow.loadFile(path.join(__dirname, 'dist', 'index.html'));
-        // mainWindow.webContents.openDevTools();
+        //mainWindow.webContents.openDevTools();
     }
 }
 
 // Fonction pour créer la fenêtre secondaire
 function createSecondaryWindow(url) {
-    const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
     secondaryWindow = new BrowserWindow({
         width: 600,
         height: 400,
@@ -60,8 +77,28 @@ function createSecondaryWindow(url) {
 }
 
 app.whenReady().then(() => {
-    createMainWindow();
 
+    log.info("Starting app");
+
+    session.defaultSession.webRequest.onBeforeRequest({ urls: ["http://localhost/api/*"] }, (details, callback) => {
+        if (!details.url.match(/http:\/\/localhost:\d+\/api\//)) {
+            const newUrl = details.url.replace("http://localhost/", `http://localhost:${backendPort}/`);
+            log.info("Redirecting request" , details.url, "to new url", newUrl);
+            callback({ redirectURL: newUrl });
+        } else {
+            callback({ cancel: false });
+        }
+    });
+
+    if (startBackendCmd !== null) {
+        log.info("Starting backend");
+        exec(startBackendCmd, (error, stdout, stderr) => {
+            if (error) log.error(`Erreur: ${error.message}`);
+            if (stderr) log.error(`Erreur: ${stderr}`);
+            if (stdout) log.error(`Output: ${stdout}`);
+        });
+    }
+    createMainWindow();
     // Intercepter les appels à window.open
     mainWindow.webContents.setWindowOpenHandler(({url}) => {
         createSecondaryWindow(url);
@@ -70,6 +107,7 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
+    log.info("App is closing.");
     if (process.platform !== 'darwin') {
         app.quit();
     }

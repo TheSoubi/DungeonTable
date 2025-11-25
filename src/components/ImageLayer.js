@@ -9,6 +9,7 @@ export default class ImageLayer {
             this.gmFlagImg = new Image();
             this.gmFlagImg.src = '/images/GM_layer_flag.svg';
         }
+        this.serverUrl = "http://localhost/api/";
     }
 
     getJson() {
@@ -289,41 +290,40 @@ export default class ImageLayer {
     }
 
     async sendImageToServer(base64Image) {
-        const response = await fetch('http://localhost:5000/api/detect_grid_size', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({image: base64Image}),
-        });
-
-        if (!response.ok) {
-            throw new Error('Error while sending image.');
+        try {
+            console.log("call to", this.serverUrl + 'detect_grid_size');
+            const response = await fetch(this.serverUrl + 'detect_grid_size', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({image: base64Image}),
+            });
+            return await response.json();
+        } catch (error) {
+            throw new Error(`An error was caught during API call : ${error}`);
+            return null;
         }
-
-        return await response.json();
     }
 
     async processSelectedImage(grid_cell_size) {
         if (this.selectedImageId !== null) {
             let image = this.images[this.selectedImageId];
             let base64_img = image.img.src;
-            this.isLoading = true;
             await this.sendImageToServer(base64_img)
                 .then(processedImage => {
-                    const img = new Image();
-                    const x_ratio = grid_cell_size / processedImage.x_grid_size;
-                    const y_ratio = grid_cell_size / processedImage.y_grid_size;
-                    // console.log("Current grid size", grid_cell_size, "server answer", processedImage);
-                    this.images[this.selectedImageId].width = x_ratio * processedImage.width;
-                    this.images[this.selectedImageId].height = y_ratio * processedImage.height;
-                    this.isLoading = false;
+                    if (processedImage != null) {
+                        const img = new Image();
+                        const x_ratio = grid_cell_size / processedImage.x_grid_size;
+                        const y_ratio = grid_cell_size / processedImage.y_grid_size;
+                        // console.log("Current grid size", grid_cell_size, "server answer", processedImage);
+                        this.images[this.selectedImageId].width = x_ratio * processedImage.width;
+                        this.images[this.selectedImageId].height = y_ratio * processedImage.height;
+                    }
                 })
                 .catch(error => {
                     console.error('Error: ', error);
-                    this.isLoading = false;
                 });
-            this.isLoading = false;
         }
     }
 
