@@ -6,6 +6,9 @@
         @mousemove="handleMouseMove"
         @mouseup="handleMouseUp"
         @wheel="handleWheel"
+        @drop.prevent="handleDrop"
+        @dragover.prevent="handleDragOver"
+        @dragleave.prevent="handleDragLeave"
         class="fullscreen-canvas"
         ref="canvas"
         tabindex="0"
@@ -118,5 +121,8 @@
             <div class="spinner"></div>
             <p>Loading...</p>
         </div>
+    </div>
+    <div class="snackbar" :class="{ error: isSnackbarError }" v-if="isShowingSnackbar">
+        {{ snackbarMessage }}
     </div>
 </div>

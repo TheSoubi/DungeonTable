@@ -55,7 +55,11 @@ export default {
             isMagnetEnabled: false,
             isFogEnabled: false,
             isGridEnabled: true,
-            history: []
+            history: [],
+            snackbarMessage: "",
+            isShowingSnackbar: false,
+            isSnackbarError: false,
+            snackbarTimer: null
         };
     },
     created() {
@@ -154,13 +158,6 @@ export default {
         async handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file || this.selectedLayer === 'Grid') return;
-
-            let maxWidth = null;
-            let maxHeight = null;
-            if (this.selectedLayer === 'Map') {
-                maxWidth = this.canvasWidth * 0.8;
-                maxHeight = this.canvasHeight * 0.8;
-            }
             await this.imageLayers[this.selectedLayer].addImage(file, null, null, null, null);
             this.imageLayers[this.selectedLayer].selectLastImage();
             this.saveCurrentStateToHistory();
@@ -216,6 +213,10 @@ export default {
             // Label
             this.ctx.fillStyle = '#0066ff';
             this.ctx.font = `bold ${15 / this.zoomLevel}px Arial`;
+            this.ctx.shadowColor = 'white'
+            this.ctx.shadowBlur = 8;
+            this.ctx.shadowOffsetX = 2;
+            this.ctx.shadowOffsetY = 2;
             this.ctx.fillText("Player's View", this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY + 20 / this.zoomLevel);
         },
 
@@ -912,6 +913,47 @@ export default {
                 this.renderCanvas();
                 this.broadcastFullUpdate();
             }
-        }
+        },
+
+        async handleDrop(){
+            event.preventDefault();
+            const file = event.dataTransfer.files[0];
+            if (!file) return;
+            if (!(this.selectedLayer in this.imageLayers)) {
+                this.showSnackbarMessage("Impossible to import image on this layer. Switch to 'Map', 'Token' or 'GM'.", true);
+                return;
+            }
+            const rect = this.canvas.getBoundingClientRect();
+            const click_X = event.clientX - rect.left;
+            const click_Y = event.clientY - rect.top;
+            const click_position = this.screenToWorld(click_X, click_Y);
+            await this.imageLayers[this.selectedLayer].addImage(file, click_position.x, click_position.y, null, null);
+            this.imageLayers[this.selectedLayer].selectLastImage();
+            this.showSnackbarMessage(`New image added to layer '${this.selectedLayer}.'`);
+            this.saveCurrentStateToHistory();
+            this.renderCanvas();
+            this.broadcastFullUpdate();
+            event.target.value = '';
+        },
+
+        handleDragOver(event) {
+            event.preventDefault();
+        },
+
+        handleDragLeave(event) {
+            event.preventDefault();
+        },
+
+        showSnackbarMessage(message, is_error = false) {
+            this.snackbarMessage = message;
+            this.isShowingSnackbar = true;
+            this.isSnackbarError = is_error;
+            if (this.snackbarTimer) {
+                clearTimeout(this.snackbarTimer);
+            }
+            this.snackbarTimer = setTimeout(() => {
+                this.showSnackbar = false;
+            }, 5000);
+        },
     }
 };

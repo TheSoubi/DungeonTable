@@ -74,11 +74,9 @@ export default class ImageLayer {
                     };
                     resolve(imageObject);
                 };
-
                 img.onerror = reject;
                 img.src = e.target.result;
             };
-
             reader.onerror = reject;
             reader.readAsDataURL(imageFile);
         });

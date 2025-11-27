@@ -16,6 +16,10 @@
   background-color: transparent;
 }
 
+.fullscreen-canvas.drag-over {
+  background-color: #007bff4f;
+}
+
 .start-overlay {
   position: fixed;
   top: 0;
@@ -433,4 +437,37 @@ input[type="file"] {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+.snackbar {
+  position: fixed;
+  visibility: visible;
+  min-width: 250px;
+  margin-left: -125px;
+  background: #a5d2fa;
+  color: black;
+  text-align: center;
+  border-radius: 8px;
+  padding: 16px;
+  z-index: 1000;
+  left: 50%;
+  bottom: 30px;
+  font-size: 16px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+  animation: fadeIn 0.3s, fadeOut 0.3s 4.7s forwards;
+}
+
+.snackbar.error {
+  background-color: #f44336;
+  color: white;
+}
+
+@keyframes fadeIn {
+  from { bottom: 0; opacity: 0; }
+  to { bottom: 30px; opacity: 1; }
+}
+
+@keyframes fadeOut {
+  from { bottom: 30px; opacity: 1; }
+  to { bottom: 0; opacity: 0; }
 }
