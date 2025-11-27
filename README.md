@@ -1,7 +1,8 @@
 # Dungeon Table – The No-Bullshit Virtual Table Top
 
 **A simple, intuitive Virtual Table Top for local tabletop RPG sessions.**
-No bullshit features, no complex setup. Just plug in a screen, launch, and play.
+
+No bullshit features but thanks to advanced tools, your scene will be ready in no time.
 
 ![demo_picture](./github_resources/demo_picture.jpg)
 
@@ -9,11 +10,13 @@ No bullshit features, no complex setup. Just plug in a screen, launch, and play.
 
 ## 🏹 Why Dungeon Table?
 
-Dungeon Table is designed and optimized for **in-person tabletop RPG sessions** with a screen/TV on the table and can also be used for online games.
-It’s **lightweight, portable, and focused on essential features**—no unnecessary clutter.
+Dungeon Table is designed and optimized for **in-person tabletop RPG sessions** and can also be used for online games.
+It’s **lightweight, portable, and focused on essential features** : no installation, no account, no waste of time.
 
 ### Key Features
-- ✅ **Player View Window** – Players see only what the GM allows, with **a resizable window controlled from the GM's window**.
+- ✅ **Automatic Map Rescaling** – Let Dungeon Table automatically resize your map images to perfectly fit the grid. No manual adjustments needed !
+
+- ✅ **Player View Window** – Players see only what the GM allows, with **a resizable window controlled from the GM's view**.
 
 - ✅ **Multi-Layer Image Import** – Easily add maps, tokens, and assets on different layers.
 
@@ -49,13 +52,13 @@ It’s **lightweight, portable, and focused on essential features**—no unneces
 
 ## 🐛💬 Bugs & Support
 
-- **Bug**: You can report a bug by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
-- **New feature proposal**: You can submit a proposal for a new feature by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues/new).
+- **Bug**: You can report a bug by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues).
+- **New feature proposal**: You can submit a proposal for a new feature by creating an issue [by clicking here](https://github.com/TheSoubi/DungeonTable/issues).
 
 ---
 
 ## 📜 License
-Local VTT is licensed under the **[MIT License](LICENSE)**.
+Dungeon Table VTT is licensed under the **[MIT License](LICENSE)**.
 Feel free to use, modify, and share!
 
 ---
@@ -64,26 +67,11 @@ Feel free to use, modify, and share!
 
 ### Install everything
 
+Clone the repo and run :
 ```sh
 npm install
 ```
 
-### Start app in dev mode
+### Development
 
-```sh
-npm run electron:dev
-```
-
-### Start app for development
-
-```sh
-npm run electron:dev
-```
-
-### Build backend and app to electron package
-
-Python's backend server will be packaged to an executable.
-
-```sh
-npm run electron:build
-```
+Click [here](./CONTRIBUTING.md) to read the instructions and get started.

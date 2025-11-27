@@ -211,12 +211,19 @@ export default {
             this.ctx.fillRect(this.playerViewportX + this.playerViewportWidth - handleSize / 2, this.playerViewportY + this.playerViewportHeight - handleSize / 2, handleSize, handleSize);
 
             // Label
+            this.ctx.font = `bold ${16 / this.zoomLevel}px Arial`;
+            const text = "Player's View"
+            this.ctx.save();
+            this.ctx.filter = 'blur(8px)';
+            this.ctx.fillStyle = 'white';
+            this.ctx.fillRect(
+                this.playerViewportX + 2 / this.zoomLevel,
+                this.playerViewportY + 5 / this.zoomLevel,
+                110 / this.zoomLevel,
+                16 * 1.2 / this.zoomLevel
+            );
+            this.ctx.restore();
             this.ctx.fillStyle = '#0066ff';
-            this.ctx.font = `bold ${15 / this.zoomLevel}px Arial`;
-            this.ctx.shadowColor = 'white'
-            this.ctx.shadowBlur = 8;
-            this.ctx.shadowOffsetX = 2;
-            this.ctx.shadowOffsetY = 2;
             this.ctx.fillText("Player's View", this.playerViewportX + 5 / this.zoomLevel, this.playerViewportY + 20 / this.zoomLevel);
         },
 

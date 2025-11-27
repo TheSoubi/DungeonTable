@@ -254,7 +254,7 @@ export default class ImageLayer {
             );
             if (this.name === "GM") {
                 ctx.strokeStyle = '#ff0000';
-                ctx.lineWidth = 2 / zoomLevel;
+                ctx.lineWidth = 3 / zoomLevel;
                 ctx.strokeRect(
                     imageObj.x,
                     imageObj.y,
@@ -264,7 +264,7 @@ export default class ImageLayer {
             }
             if (this.selectedImageId === image_index) {
                 ctx.strokeStyle = '#00a100';
-                ctx.lineWidth = 2 / zoomLevel;
+                ctx.lineWidth = 3 / zoomLevel;
                 ctx.strokeRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
                 ctx.fillStyle = '#00a10022';
                 ctx.fillRect(imageObj.x, imageObj.y, imageObj.width, imageObj.height);
